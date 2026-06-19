@@ -1,0 +1,2605 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart GIS Dashboard for Global Country Analysis</title>
+
+  <!-- Leaflet Map Library -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- OSM JSON to GeoJSON, Turf.js, and D3 for 3D Earth -->
+  <script src="https://unpkg.com/osmtogeojson@3.0.0/osmtogeojson.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #172033;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --line: rgba(255,255,255,.12);
+      --accent: #38bdf8;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --gray: #64748b;
+      --purple: #a78bfa;
+      --road: #f97316;
+      --shadow: 0 18px 45px rgba(0,0,0,.35);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, Tahoma, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 410px;
+      grid-template-rows: 70px calc(100vh - 70px);
+      height: 100vh;
+      width: 100vw;
+    }
+
+    header {
+      grid-column: 1 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 10px 345px 10px 24px;
+      background: linear-gradient(90deg, #020617, #0f172a 55%, #082f49);
+      border-bottom: 1px solid var(--line);
+      z-index: 1000;
+      text-align: center;
+    }
+
+    .header-credit {
+      position: absolute;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 320px;
+      padding: 7px 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.16);
+      background: rgba(2, 6, 23, .46);
+      box-shadow: 0 8px 22px rgba(0,0,0,.22);
+    }
+
+    .header-ppu-logo {
+      flex: 0 0 auto;
+      width: 46px;
+      height: 46px;
+      object-fit: contain;
+      background: rgba(255,255,255,.96);
+      border-radius: 10px;
+      padding: 3px;
+      border: 1px solid rgba(255,255,255,.24);
+    }
+
+    .brand { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+    .brand h1 { margin: 0; font-size: 22px; letter-spacing: .25px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+
+    .header-copyright {
+      text-align: right;
+      color: #cbd5e1;
+      font-size: 10.6px;
+      line-height: 1.35;
+      white-space: normal;
+    }
+    .header-copyright strong { color: #fff; font-size: 11.2px; display: block; margin-bottom: 1px; }
+    .header-copyright .course { color: #bae6fd; display: block; }
+    .header-copyright .rights { color: #94a3b8; display: block; }
+
+    .top-actions { display: none; }
+
+    .dashboard {
+      grid-column: 2;
+      grid-row: 2;
+      background: rgba(17, 24, 39, .97);
+      backdrop-filter: blur(12px);
+      padding: 14px;
+      overflow-y: auto;
+      border-left: 1px solid var(--line);
+      z-index: 900;
+    }
+
+    #mapShell {
+      grid-column: 1;
+      grid-row: 2;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #020617;
+    }
+
+    #leafletMap, #globePanel {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #leafletMap {
+      z-index: 1;
+      background: #0ea5e9;
+    }
+    #globePanel {
+      z-index: 2;
+      display: none;
+      background: radial-gradient(circle at center, #0ea5e9 0%, #0369a1 45%, #020617 100%);
+    }
+
+    #globeSvg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+      touch-action: none;
+    }
+    #globeSvg:active { cursor: grabbing; }
+
+    .section, .card {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 8px 22px rgba(0,0,0,.18);
+    }
+
+    .card { background: #020617; box-shadow: var(--shadow); }
+
+    .section h2, .card h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      color: #fff;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    label {
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    select, input, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 11px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    select, input {
+      background: #020617;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: white;
+      font-weight: 700;
+      transition: .2s;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+    button.secondary { background: linear-gradient(135deg, #374151, #1f2937); }
+    button.green { background: linear-gradient(135deg, #16a34a, #15803d); }
+    button.orange { background: linear-gradient(135deg, #f97316, #c2410c); }
+    button.purple { background: linear-gradient(135deg, #7c3aed, #5b21b6); }
+    button.danger { background: linear-gradient(135deg, #dc2626, #991b1b); }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 13px;
+    }
+
+    .row:last-child { border-bottom: 0; }
+    .row span { color: #cbd5e1; }
+    .row strong { color: #fff; text-align: right; direction: ltr; max-width: 60%; overflow-wrap: anywhere; }
+
+    .mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      min-height: 68px;
+    }
+    .stat b { font-size: 19px; color: #fff; display: block; margin-bottom: 4px; }
+    .stat span { font-size: 12px; color: var(--muted); }
+
+    .flag {
+      width: 48px;
+      height: 32px;
+      object-fit: cover;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.08);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(56,189,248,.14);
+      color: #bae6fd;
+      font-size: 12px;
+      margin: 3px 2px 3px 0;
+      border: 1px solid rgba(56,189,248,.26);
+    }
+
+    .layer-item, .radio-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 5px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-size: 12px;
+    }
+
+    .layer-item:last-child, .radio-item:last-child { border-bottom: 0; }
+    .layer-item input, .radio-item input { width: auto; margin: 0; accent-color: var(--accent); }
+    .layer-item small, .radio-item small { display: none !important; }
+
+    .collapse-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .collapse-head h2 { margin: 0; }
+    .chev { color: var(--muted); font-size: 13px; }
+    .collapsed .collapse-body { display: none; }
+
+    .list { display: flex; flex-direction: column; gap: 8px; }
+
+    .item {
+      width: 100%;
+      text-align: left;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 13px;
+      padding: 10px 11px;
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    .item:hover { background: rgba(56,189,248,.16); transform: translateX(2px); filter: none; }
+    .item b { display: block; font-size: 13px; line-height: 1.45; }
+    .item span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .loading {
+      display: none;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 12px;
+      background: rgba(245,158,11,.12);
+      color: #fde68a;
+      border: 1px solid rgba(245,158,11,.25);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .loading.show { display: block; }
+
+    .city-label {
+      direction: ltr;
+      background: rgba(2, 6, 23, .78);
+      border: 1px solid rgba(255,255,255,.25);
+      color: #fff;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 999px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    }
+
+    .city-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #22c55e;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 4px rgba(34,197,94,.2);
+    }
+
+    .poi-marker, .center-marker {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #a78bfa;
+      border: 2px solid white;
+      box-shadow: 0 0 0 5px rgba(167,139,250,.2);
+      font-size: 13px;
+    }
+
+    .search-marker {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #38bdf8;
+      border: 2px solid white;
+      box-shadow: 0 0 0 5px rgba(56,189,248,.22);
+      font-size: 14px;
+    }
+
+    .flight-icon {
+      background: transparent !important;
+      border: none !important;
+      font-size: 26px;
+      line-height: 26px;
+      filter: drop-shadow(0 3px 6px rgba(0,0,0,.5));
+    }
+    .flight-icon div { transform-origin: center; }
+
+    .legend {
+      position: absolute;
+      bottom: 18px;
+      left: 18px;
+      background: rgba(2, 6, 23, .9);
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      border-radius: 14px;
+      z-index: 950;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      min-width: 220px;
+      pointer-events: auto;
+    }
+
+    .legend h4 { margin: 0 0 8px; font-size: 13px; }
+    .legend-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0; }
+    .legend-left { display: flex; align-items: center; gap: 7px; }
+    .swatch { display: inline-block; width: 18px; height: 10px; border-radius: 4px; border: 1px solid rgba(255,255,255,.25); }
+
+    .hover-box {
+      position: absolute;
+      display: none;
+      pointer-events: none;
+      z-index: 1000;
+      background: rgba(2, 6, 23, .92);
+      color: #fff;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      max-width: 270px;
+    }
+
+    .hover-box b { display: block; margin-bottom: 4px; font-size: 14px; }
+
+    .globe-note {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 4;
+      background: rgba(2, 6, 23, .82);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      box-shadow: var(--shadow);
+    }
+
+
+
+    .floating-tools {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 940;
+      width: min(360px, calc(100% - 36px));
+      max-height: calc(100% - 140px);
+      overflow-y: auto;
+      padding: 12px;
+      border-radius: 20px;
+      background: rgba(15, 23, 42, .92);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .floating-tools .section { margin-bottom: 10px; }
+    .floating-tools .loading { margin-bottom: 0; }
+
+    .country-quick-card {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 940;
+      width: 310px;
+      max-width: calc(100% - 390px);
+      min-height: 110px;
+      padding: 13px;
+      border-radius: 18px;
+      background: rgba(2, 6, 23, .92);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .country-quick-card h3 { margin: 0 0 8px; font-size: 15px; }
+    .quick-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .quick-title { font-weight: 800; font-size: 17px; color: #fff; }
+    .quick-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .quick-stat { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 8px; }
+    .quick-stat b { display: block; color: #fff; font-size: 13px; overflow-wrap: anywhere; }
+    .quick-stat span { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    .earth-inset {
+      position: absolute;
+      top: 210px;
+      right: 18px;
+      z-index: 930;
+      width: 310px;
+      height: 230px;
+      background: radial-gradient(circle at center, rgba(15,23,42,.88) 0%, rgba(2,6,23,.94) 72%);
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: block;
+    }
+
+    .earth-inset-title {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      z-index: 2;
+      color: #e5e7eb;
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(2,6,23,.6);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+    }
+
+    #earthInsetSvg { width: 100%; height: 100%; display: block; }
+
+    .measure-marker {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #f59e0b;
+      color: #111827;
+      border: 2px solid #fff;
+      font-weight: 900;
+      box-shadow: 0 0 0 5px rgba(245,158,11,.2);
+      font-size: 12px;
+    }
+
+    .tool-status {
+      margin-top: 8px;
+      padding: 8px 9px;
+      border-radius: 12px;
+      background: rgba(56,189,248,.1);
+      border: 1px solid rgba(56,189,248,.2);
+      color: #bae6fd;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+
+
+    .map-mini-controls {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 980;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .map-fab {
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(2, 6, 23, .92);
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 22px;
+      backdrop-filter: blur(12px);
+    }
+
+    .map-fab:hover { transform: translateY(-1px); filter: brightness(1.15); }
+    .layer-fab { color: #fff; font-weight: 900; font-size: 22px; }
+    .turf-fab { color: #38bdf8; font-weight: 900; font-size: 24px; }
+    .map-fab.active { outline: 2px solid rgba(56,189,248,.42); }
+
+    .tool-popup {
+      position: absolute;
+      top: 18px;
+      left: 78px;
+      z-index: 980;
+      display: none;
+      width: min(230px, calc(100% - 105px));
+      max-height: 48%;
+      overflow-y: auto;
+      padding: 8px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, .94);
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .tool-popup.open { display: block; }
+    .base-popup { top: 18px; }
+    .layer-popup { top: 76px; }
+    .turf-popup { top: 134px; }
+
+    .popup-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .tool-popup .section { padding: 8px; border-radius: 13px; margin-bottom: 0; }
+    .tool-popup h2 { font-size: 13px; margin: 0; }
+    .tool-popup label { display: none; }
+    .tool-popup button { padding: 7px 8px; font-size: 11px; border-radius: 9px; }
+    .tool-popup .hint, .tool-popup .tool-status { font-size: 11px; line-height: 1.35; }
+    .tool-popup .grid-2 { gap: 5px; }
+    .close-popup { width: 26px !important; height: 26px !important; padding: 0 !important; border-radius: 8px !important; }
+
+
+    .popup-head h2 { margin: 0; font-size: 15px; }
+    .close-popup {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 10px;
+      background: rgba(255,255,255,.08);
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .compact-section { margin-bottom: 10px; box-shadow: none; }
+    #loadingBox {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 990;
+      max-width: min(520px, calc(100% - 120px));
+      box-shadow: var(--shadow);
+    }
+
+    .country-quick-card, .earth-inset { display: none !important; }
+
+    .locate-fab { color: #f9a8d4; font-size: 22px; }
+
+    .distance-label, .area-label {
+      background: rgba(2, 6, 23, .92);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 11px;
+      font-weight: 800;
+      box-shadow: 0 6px 14px rgba(0,0,0,.28);
+      white-space: nowrap;
+    }
+    .area-label {
+      border-radius: 12px;
+      background: rgba(22, 101, 52, .92);
+      color: #dcfce7;
+    }
+
+    .ppu-credit {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 955;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(2, 6, 23, .88);
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      color: #e5e7eb;
+      pointer-events: none;
+      max-width: 360px;
+    }
+    .ppu-credit img {
+      width: 46px;
+      height: 46px;
+      object-fit: contain;
+      background: rgba(255,255,255,.96);
+      border-radius: 10px;
+      padding: 3px;
+    }
+    .ppu-credit strong { display: block; font-size: 12px; line-height: 1.25; }
+    .ppu-credit span { display: block; color: var(--muted); font-size: 10.5px; line-height: 1.3; }
+
+    #turfPopup {
+      max-height: none;
+      overflow: visible;
+    }
+    #turfPopup .section {
+      padding: 7px;
+    }
+    #turfPopup button {
+      padding: 6px 6px;
+      min-height: 31px;
+    }
+    #turfPopup .tool-status {
+      margin-top: 6px;
+      padding: 6px 8px;
+    }
+    #turfPopup hr {
+      margin: 7px 0 !important;
+    }
+
+
+    @media (max-width: 1100px) {
+      body { overflow-y: auto; }
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 500px auto auto;
+        height: auto;
+        min-height: 100vh;
+      }
+      header, #mapShell, .dashboard { grid-column: 1; grid-row: auto; }
+      #mapShell { height: 520px; }
+      .dashboard { max-height: unset; }
+      .tool-popup { width: min(230px, calc(100% - 92px)); max-height: 48%; }
+      .base-popup { top: 18px; }
+      .layer-popup { top: 76px; }
+      .turf-popup { top: 134px; }
+      .country-quick-card, .earth-inset { display: none !important; }
+      .top-actions { width: 100%; }
+      header { padding: 78px 14px 12px; min-height: 128px; }
+      .header-credit { top: 10px; right: 14px; transform: none; max-width: calc(100% - 28px); padding: 6px 8px; gap: 8px; }
+      .header-ppu-logo { width: 42px; height: 42px; }
+      .header-copyright { font-size: 9.8px; }
+      .header-copyright strong { font-size: 10.4px; }
+      .brand h1 { font-size: 18px; }
+      .brand span { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <h1>Smart GIS Dashboard for Global Country Analysis</h1>
+        <span>Global country classes, live API data, Leaflet, D3 3D Earth, and Turf.js spatial analysis tools.</span>
+      </div>
+      <div class="header-credit">
+        <img class="header-ppu-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOYAAADbCAMAAABOUB36AAAA/FBMVEX///8jHyANsUsAAADsAADtHCQAsEj8/vx2yosAr0XAv7/c3NxIvGmbmpodGRoPBglGREU2MzOHhofV1dbj4+PsAAsArT0IAAAZFBWmpaawr7DA5ceHz5jy9/ITDhDsABLtEhz+9fT09PT4ubf84N/5xcP97Ov72Nb3q6mrq6v0jIrr6+vLy8v6z8395+XvPkBaWVn3r63uLTD2n53wU1NmZWZ9fH1PTU76ysjxYmHzeHb1lZPzfXw3NTbxZWNxcHHvRETyb20qJyjuKCwttVjwT06SkZHuNjei1q1VvXBmwn3k8eXS6tew27n0hoL3oqSa1qba7t0AqSxxyYelTuysAAAefUlEQVR4nO1dCVviSrMOplEBSdjCppIOS0BWkUUBFxAVZ5xhzpz5///l6+4EsnYnbDrnPvc9z1EHAuSlqqurq6qrOe7/sT+cFIuNRirZ1JBMNRrFYvGrb2qvKEYTT9exh2yBN0PMxmPXT4lcOPLV97cnJPlCNisIATsEIZstiPyzLtRqv9dSvvZOd0KEdzA0k42trlsCCfZrX3mnO8GD5u3qupIkdevg5r8q0ZRPmjN5rnILafaV97oDGj5pzuErx3Xg4ivv1RsN2hNFJs3stX5ZWZbrXBlirjqWs17l71LhRu42RnvOg+ZAvwwNzQo3gwAZIbVMHqkC8Ep7069A8imQEfgw5VmfNMcQBucAPHK9jgwWVY4QL30SAx8I32YKAfPMYIc/mh3YqU56dxwng0oJdNAjr3D+1+js1TOvz/x8k3IJm+aTdlEZykvtr3aJ60lBlatKaLD+FSgaJBniZNIsDMk11ToSIvmrdD/rB+GU4+5lqfw5NNg4uXrgzT4cTZxsmglyzQwNyzpW0SqQRr+g3OPUOexz2Bx9seKGY7zVUV3PDWakmtGsD2lySrk2wuLsSqBck0EZ/1Hiyo8ymH+lHUpe8w5vPGMTZzI3eBB4kcVyJc01qgCOOlhn+1DmykHpkevL7U9jZUNxyLvIaG01EVJXA0HMZJ0LExvEqO2tu8HRHN60qkCeYKqP5RvwVeLMF9xFJCa155NvcT7D1FXjJTnn25em434fArUN4HgMAGiVO2Bx97kUkaAGNKNSQLNDsZmI86KnFFk0EXodMFcqADlGam2pdEC9hmWqlqufxvJKKFBvuhB+i/EF3xwRMleUj2nNumWsuAhtWepySKYlAD7LYWhQRandtX85auDzjA/rS7DerbbLHRhUkRcIghAb47vWwVnmA3RRbgWqK4yhzJD8qq+lmiQhsZbkIHZy79BgPTDLoXMWOSRNRFThymhU4ikG+QvBHlC50qFpRh7Yc+BWNGme8BoqmCEbdM/NZGyFlvdqqXJQllxsDywFW4zP7lJwyq+ZzcyUXwGYIrMLR+gfXYAYHxZJf1Ohk1q2IGZ4PpMJxJ/jD/Hn52fyT7GAvIfVVGuQctFJPI8sIETekLKA4OCTSo5pZV0ZFhChh8Ewmg+TUDsOtjdwAD7SzEcTg1iBt9JEghwt3RYmqja5IM3tceWxelieg03sbDbDZ24T+SQriVCMmGNIvSCRlOImrxHo3CGVxZqrAnhYxS36nfoFkS9c5+wKyYYyBY/4N5of3Z4uTWYtCU2giDGUb0oH9ROaftRWyGRjb5tRxJjJmpAepUf3C+oAyhUcnpdH9wAcdM395sVTEAu3uW3yPyoIBoMt4gXc1NxlVQl2sK2FU4WbS8vdiHjgmjk8s3wsumWOq4Rpyv1XCf0Ci257slp/lR9/rVac6uNjV4bBMteTpd4+2FCRCtCHp8g/NbfOWpYwvyCEQfJLksCKB1JQI/bVAxAtWypokB7YiQ/T1DYjvqV2eN87ELQCauJEymyeKu+QnSpDMnseNk6UcFNbISNEd0w/a4KEkgx1ntINXksvZWjxF9rjSQciv6/VQSvuyW4fyULShab47L483gRVKCEpdVqlhaQThb0K8opkW9JT6WNXoQQg7FXBwRKiYefYFAO7SpJA7c3GRFG70/kNZtmfSogyXDz+smrnErQVEJzDbhVQ5p6dkXMsnLOZITUdth3KVYXY3RuIuc6gLM2ts2St3AVy904KyuP9fvIKCYcB4q839wTYuAdjTqkFZU1xO632Ak00tmu0/MN8ZZzutg9yuunhk51lVqQFc7ZHF9yM5ipSTY2nPJnC4Nx2TQtgh0hZGaf6dNsPizqWgsg3yDhEuWd9xVDKHABd7NxplkjGqmu/aAykujHPPIIttTfMC7zNehavbevqrLB/UWrQ8tSV4HpuccZFSuPHFc12R4bb2dwIlhs/ND/kYJm53sUd8IN2X9IF2mVcVYFQfq1ss9wuPgsaEUMnHSz5t83fd2OsFBfeU8PuyP8DY+TMO/TaG6v1cyG+NqMDK0tBZMfk9oWS7ivIN+7PKzMJuRHIuZDgxtY2yhts9OH3ZLU+hfihFXaFdkdTXDh1Whn1sTVFw3KKZpQg3Jhm00xJG6BD60ySuf7E+sl7fWaR9H+XjOK+EVppL9pBeCNBeVOHqBgXrJQaJvFqD2HqSXccoKRyohsiQAzRErns65hXB5eFtTtAAv1NlytPNltTeIhavXWeJCV5dwy83n6LmbYCtNULtjLIDTSFastaycJdbeNIfN7hzwlW3rw2XLPDZJP8l2w2sRjJn8mHJ6/3z22h77W5ZofqHNLQYN0UwCzpq+9ya7Oh2fAKOq+SWI5EM0HMk2bx1usKF+jylCZ9vNbk2l2r9Epo8blZdMgrFrtO1Ymu86Y3TW7ofYkTlRvCU4Y4OYY0VzY/WUOLTzDrbMCTGgOxs9yeZoNf1VVsor4V3d4SL6ALzeV8KnIQZgri7jsar7s/dJaGF0uheR2+ynmkuYYrb/l2E541jadU7qLRaXmmBKRfiOyC+HuKH64JdtaLN41HCs0Cn+FdR62BSEbTiabXhVZMCE+4QEYI/DI/UcIxoeoCSphhaeE9s7jFeUzImH35gjtNwaUKxo6nAlnlXWezG1ndsTZ/ypUJsLjyKrhTJxKUsJvU6vsInFyzS7IsdVwUafqhmcwIhQh2tjyvtOKRRBTkX31blBZ578jnQw6COkPuEPAqrmHbHyFu+e53kCb6OoXnBvpOheeNxKl0iLkFkn3RhSaUKRLwBLNdeiptnGV/BMHqre9CEwlSy1tnNhNnGcIgEpu7lSkFJQhG3l4CO02bsa28dlBaZGP10YGESrmieOL2aAXIfbfaA7RWeQVQ6txxnrIsMgdmxs5qJ5phvAgqUMVZDEfz7qv2O0qQoI+G57yGROpZHx+1B7TMyDpctJ1ocg9CoJAICK6j8ySPU4dXGw3bMoDE1Z15ldOwhSk6ltG70czzwgOXihdcxBmOks9ix2BKs9dXi36OcaEJdy95rTujLM+Ad8bwdqPJkVFQvEW2yCq1RkKLy+RZC1d1CuSpwpkVWMVT6RLAhczMYzPdPLfKZ8oKxS/NK57IbMhbB/2V7gemmLHRKS5sK71KtrgJYtlRVOZOgBxrZBZc7KFwm3DBc8AnzaLu4+dE3hBnKqGPjSJTZXGGBY4VUJlw5ZFmeLEI6wC+qmqNGcqMMYRpD0wTBJ5jLgj4pblenoQNcYbXn8NOsdWxNyRVqxWuJ5MaNyTHcW0GJLCAYB4c0V/JcoCcVhYDuQcnDvhXWgMRfe4sRtfR0ig7btiTtCVZdYocgg727e7B/HVW/1WqtlVFZewaHDDsrEs2hdvZBJnQIOuV5Ntagl4VRWXi28KRjJw7LamgqCaz2x+PKG5tMUCvIS24r5T3R5PgyiggvvIsy1xqPEm43Y7yEj9BiyTkHzIUoll3Ddrapy1qW+YjqYbJoXsz5o+8J0tO0SKaN865o4SmGgjndfqsQiFq3yqywnbSjERz+WYyGUkmm+F87ioXzV2Fk41UwjA5eT9Zi662xLbLsgyRzyePRmwXIW/fKUTsJsW53k6azhcVG5HEMJ8PN1OEqg9ZYvTxkmxur4F6lOWbepWresSmi06iNGFuKU03WYXDjbdEMtXMI0FH/bHkFCxObetj1VDQJbj3GXwPWze4BXjaSmnLsdl8s3txuWTxOSOSeMnJMHwVzfsqZhhhcZKNrB2jsE0Jjrn2r9nST514Pm6aXApD2mVbW9rwm0Wibymy0M1g1+ANf6fFZvQt7LraNIPUmsDFXVs111Or3a4kQZ8ZFZNHxFMn6h2iBynEQ7c5RcwMLwHRSqVozJyp3PoKGhZYnBAXHZhlV8Vhoddu30djgYgR38vSMz+7zZsRrJxF5PlgMim+kOUbKevLIrkc0xfS4rb2fUb3slyqBLlfwFucb8aSjLGBYpdYEEGxmU88hRtYPZuDQTLpWJMU88y0UomI0xYXGuN0mdyRfPRPMHRWiNE/Zw9eUCpajISvcuEwElvY7QttsBYqJN1gr6vtYi2eAMCqydCQNLx41g3vTjOiX4fcotz1MI/cBMclOUY2tEUceLvYHhFDdebD1JrCCBQ/j2BnpTWNxQYyPieNZjgXxciFSfck/C/m3DKFq5Khikmm3SXnHd5DuF3rrOt26RUCrsnqrIcOGEgZX1PT+oKTVCoSQS6v1zuQgmq5zo2AuYAaL68BmHlljEy9Uqi7KzGyg7wLHvzSNA27nDaPnmxagqPIRGvbIIhW04aa9tHEKcuSR1w6n/Gls1xhp1iQEQVJva3EFmZt5nQDcWzlntxp9+Ha5JYAXHTL7YmHrX1a+0ACM32+29hcL0nyJo2J+XRoV6iRFNkNHHHtubwKjUwkkkgqeQRsTWsTZmX3TpZ2FQVpWPbl5Ok+lyvaYFV5gebLFa1fWjXmDZumqVsTz6zx2SlVpA/DvO3K+Crh6bN0fqEVXtxxXK++2reiasvQLq5RKFOpmocm8yN2oFnULkglHIsV/oHwTPL+Sq4nsovDp77qDq1SHVMzKsO1Q5tlV0vsQDOPjU4j57Q4JwGRlMkNMp5VVARVEHTWFJd6inpXq4/mAMjUqgsjx5lhG74daOawY+6aCoqK4hPxw3yKk+xwIMWZhkQrYAGAJEMoo1+ramLbhxX9Ds1dTFD+KkpZZhUzAT6BawMYSyMz7snUWUbq21nH2sto0gRgfnPTK5XXcc1EPHZ7/TR8i+bDONrW9Ds0d7K09AUBWh2JZErz+JJ1kCkFmaC2aYeRAsa1uzZXttQgXBe0No1ihs9kRNEIHDA9PW4PPq0rsA+W9fPxGlra4FS4csd4kARv1QkwJxmeAxS4S8vAnsPRK5DKJGwffI1ORY8htNqmioTR7H6KzI8500lvnMbso8EdSppcqoCXuaJfcVa1SiG0xOysjdAEUZT1/m6rd6XT9Pg2DyRN7gnxLOLdS77E2SX+noprptePlcBidN+7M8+m9N3SokfI6UDS5JKimOC4K1HwZWyJg2Dz66pOrz1My94KDx40d8xW0zEgnm2zkHX0fnCBFimx7rVRtEHZNpmgHK3iwHNoBLIFJ0hbqx1pNrWFUSPuXVCOmwlhE2TLw4PH2es0SLoH6HijFSN6uHo4Kf/mzMm/xXenyekz5snAuzGLZmqhLSorYRMkQ1MXsCEtfUvNnaxwMKU1kPA2tgoOCEFbGj54M+2PZn1T7zpqltrzXg9lgszwKkCuT0gEAXesM2NEphLVFDi5FSg0PRz3z6HpsZujAkBpLJNAiWUl8liqVkq1R1PrYipNj75Mn0TTA8sxGpyk9tRiax8lCUiSOTP/QGHp3ZfpUO7BJvjVUVvyKgFoYCxhgJHhIFBdWk8f5C+gidYl9R7xD6zRyuXsrlVtm70gGktvmn+D0t49aksxmxtU07zZqkGUTtNrvfcXSBODpHOBNWfyeN9CqMgtrqdr83+eZsWFJu6ciSB1e0Av4PvP0yy5KK1OE8y6qz2Q24/Nv4QmWYnJtcpkFAyuDNHjsqWBq+rzafz/BM2gTEJ5qw1FyPa0rbHbGJXmf2He5HAugUC+eV2A+Up3J0EA+mZF3t4L+gTX3RuKolSrrdZdq6xy6noCwc3NJEtfwmuqT+vVoSI7uMo5cLWPhZh/tOeu2XcAF71u79UU7Nt+haJlpzM2+Hrp3tABZa7aq9mqvtvghhgjUydm15ZVGJ7rzSI+Vcl1u8On0WwBqVxFTjoITiwWRyJZlapp++P20QMC1xjLp9GsAKlEKoghsCxRKqTZIDCF3a9osSB2qnqFr6WJe4XPSDy69mjZuXqHp8uaqbyEXsrvteeQqbRFNjwLD31iJGtdvx65mcTcHJakh6PZK/fU80M8/hAQXcJ7YgA9xcae5K12tLT8ogMAs+KJfpSQh3+Q4gdu2238YcBT61c3gzLR0vJg7NH6c0VTEHBmzHR8gMfEmfL0H1iI+onB+gHJV8vebQXjaOorCIHn+MND7Pp6aJQl0guGCVJeqSQ28nxs1zZgCm5Upq2qbQqrtNv2crZmuJmMpFIN3eAYNsXD1O5Ik2sWnndsRnMHQElLV9s2+ZVuAID9ZamslGk1UCbLyzPt4a40uUi8sGG1kx31nlboBTuWWkRcII0rDySwWNDMr+msOrYN2pkm17jd+S04BeImWIt788abmTSdTGZIojKUqJscTcW0zBqk3WniJMnObc8qvVkQL8RM/QZvNE1VS5Mp/SwVwwa5b/RbYQ808SbVbbrN2KG0SqYkrhI09mvQyzBNvjzPeu+90ORy/P67gvWNxBF9w2rY5+DcD030cQ/77i/ZAve6EBV6lbTJLWKuxfZEk2sGhH23RL1bADKdcGOG22BsJRceGO+1L5pc6mEnf8rh5PWQCFuTEQDBKcvPNWoTnQc/mO9uXzS5Ysx177Y/lOwnarRXje3btSmrHZSpMxurAmo3n9aKJ94rVEFDHQSBdW78JYHXmkqGZZnVFd00OOnHMGKaUby/YC9IDbacWLDjLlvTYSPsFYD+dEI5o2INU0zTffO4TnO/2M6Tn8hwaWl7rowqyw6wlFdQYNoixlilFMN7xhYObms8gnN1hutpV63su/fYXajPPVtAWQIKm3Vn+mSUkdSC+BDWGrdchbweYb+GlHhUZ1gfDUXz9s1DtU3eB7Sa4eBs2kE0NadWwSNTfp3J3q0Fi6ZIPMsIfTUU0hhTVnABeFc3t6XOci7JUPY8pqCREM2BeIbD52zVcUg4P58EDiDZdDIDeln/DClsq965sR9fZUMqIVpDkvTSvfOXs0/EP47PJ/VdQc3UVPTmelXd72GTjAyzjrgrNc95nj7+PKQvnDdAytheNVOjez5jWep3FTbL5FPBJdNAFed5+ujzEHLSrOCme7A+Nc0cqoQt0HzZp0+ayUHGPZ1CE+cX06ySjrXYrBqPtcZqXQbIAFUV97Bt8tbtGFimOL+YppY76ZQ6wPZEqS/BsuS+uZrVSdDeR/CANI+P/dJUtd4r/SqUHXdWnrQpB98UqUVt1LlzTdN6a8fkVmm3a71U+xEy3uTsLGR77TGF5lg/R0ReH93EqZNapdxWFaWHD1dzN0PUdG5A76NBpRk6W93SGbKI6ffzM3TnZz54Hr+84J8/3l+OtBccf+O4i9Dx2UvIdMmxG02lR4QplaSFkd2r4ggfnHcWrqfKaYgwaAoBt9WDTvP47EO7pfT5Rejl49s5d4ru9DLkYOXAywfm8HLJYRbk3Y4vLs6O0+eXf1avTv+4CLnQvFtop3GNrNGeioQLZ9iLE1YzL9c2VzrN9Dun3xKSROj89J/LNGJ88rIW53EI/7m68VA6ndZ+h045fNG/v9EbhS5/kAvSSJDoDb+F0uTloW/cP240Z5rGOjrNVUDvrta3HxFjQZPVZ88tUmChGdJoHqVPzzHNn+gH4hciN3iC7j30HiIXIW7cJX70+/nxH0Tz+Oji4yd6Af6B3uIbhy69uPz328/v+LUvZ9z30LGTZkmzP87FVgU9VGGvNG8Z4hQCzgWZpmaY5vFx6PTlmEgT+WSXZ2iAIprH305PyRXvLxfIiUEiOz06Tv9ArzwLhc5OuPfviGYI/fvHUTqNRYp09hLRCv25fL88wX9cfLxwF2kygm1jc4RPvFneWCr527gsqAvuPXpgMlsNi061JTeGhtI793KEvvWjEHdxdPTtH+Rj//6DNTf0foIGHzIoiOPvS/TAC4dof/vgsH5+/HN6+Yc7O3r5/hN9MT9efmDNveAuuH+Ojk65n0dnlz/R93OJaX5gvbXRVG8gXJZvTG1klD4yP3XcX9nrmBtW30QXtUU3dvz9+zES4OXl5er/SySHy8uXi4/VbBP6BxmkE+6EXHCiP4///HF5qr0APfrj3x/vSHOxpE/wFR/oB772d/rkW/r8R9pGUyVth+fQfFBnX5KR8elzZcmrUQdTnE5ri7//9+/pNKGJxHX5Qe76A4kofXGxtpW/06F/f59eXOoXXX7gyz4uPrj3b+T6y3OklWk8Cx2dvp+fX5pxEfoRSp/aaZbkmcq1O51l12BUlmGv1scnFnmfy0mt38Nw+Hzn2NR8/Hnn3tPYfIY0YLt6fGTMfOmP8+/n3At+3rgI/41Gs/bnGXYBiGEOmS7QLkJv9O3EprQq7u9kd+WqeBaZTWGH8wa9qoSorS2WiqX5Hf2+RPf7cXJOmShD7/jS00tkmH5c/jD5h6Hj1ffwm+I1hj5+htK/iWE203wly8yRJdajKriqDShdifOBJ2b3eluYHZug9J+fyG1BNvTnO83tSV/8/J5+OT8/C/15/+nyXRy/0Dym4+/4vc+/hVY0Fa0Jh+blmQWqwHJL5WbBXt1H0ye2K4SQsSzJyISCZvkj45e7UPBzaTTfh9KuYqO660dk3k2v580l7rpb1g6AgTIS6HoYjrFjqwDJozhoDfaRC1Yz9OkLsTp4XTWwD7YnAEK9mynuKSP121x1Uvd5lpjHARpZc2uvT6eJD7AZETcPC6+1kFfeHpgsZMzZ/2lFzhN8LDCfuvAVy+qlVthOvB/lfrUtQeGUMTK/wQ0OTGMfLhEQjeKsc6v1Pyy0kJfWWg9Odd2sEIOjNaqoOIugWKDvnNeQWXt9P/6cfh7+IJ9Q6+UQhMF235Tr6wJt4fUa9HEQioGonWc2brG/e6n92A76IcGtO2hMjy1Yr+Ntmh25v9m55LaVSiFWtB4s9nU8SQNw+DqDpvjPDPfArNfQnLLhUYYp0caSK8YszH328jkASDAPwZSgHsH+QpLBjKtseircFW9lyXEN69Hj4kZHKe0ReIKcTuf9tQPU6+GztWTEczONJTCOEivohGxnGBUePuu8RhtG1iOPK6DLTW6mNeTObnEGcGPVAaqwLsGyLdKywo7Fk1tCtbBpIUliK1vvzbY4Y3QdFxJNhWY2v8FxcO6B4Vp6+zqTIO7T0Z0vtjvQmcwqoqU00R6X54f72n7g636cowRLtiQhc6SojKI1NgYikqX9o6w8xdgBjtp0RfE6Y/Yy1RL28SoQJ97vkAGCG51haEWMd2SI7DwPcTS3G5r4UCNTEcSIFHbNAekbXb6R5R3UKuUyOTocpIOczm1Dcag1YDeO9+ribFdL7nYIT6VTq3U28GZ94MrOsyDsq3CPhmZc91YK6+9dwYEDpcqpHSiNW1UFrae3MrR05EX7epQfHHKENoZGL30jRjOZaoYV8SSnj9eDWx1BzkBTsPMsCG8H84muns2O5/okobYEtbyeMoWkVdC2hpaOiPOAPPH5MJrbjFlP9DCs7UyWbrDD14aS7CvItTlcwmICv2n/XD+fc+04zWOtthV8SCyyO71HZco4mGgXuGaUBP52v0QjA9daiJXaLib4lCK0LuGUjU9y9oUEJT+IiO6vjLjpTtLIs05GXG9ur4veIxxTioEsH2M1m/eNYviaWtWySljhSu+O9za/bZFk5XoDQuZ5uOsuhMjbA5Wk6RzL/nR0GG3FKGaZYVysVmLM4www5vvnbwuOmdmCVZ617l39vD1YCe31Fy4i5d2GaSN/zdMOvzKgq23/cLLkhkyVtTB9eGtu4jQUk9FbPuPjS0Qm4NABGo+IvJVpgS9cv4Ub3vd00mhGBwGerasmUA5v2xuSvr5s8/cu8mJskMgnU5Q+0Y1I+O0pluXFjd55j/tfXNBgHoNMg5At8HzgITZ4eotehbUDQJrhq9zbcHD7EMgghhu/q+1c6T2DfQyyx52R7tSZDG7VQvq1iLj36TZfG4a4p2YC7ghnN9XaQ+Gwapu69WlpD4xC/MDR0zf66ZWfB/7p4DH/dcjC/QbYpQt7QbZw6LAMRnFIFagQjyQEhj+6F/DXn5TWaD5TBIq3zeHVhT9nhg6BrjBZzwZje0TCXWT6/qNi/rqQ2Xw21ClmM+LtFWWGFj4jXmpC8tbNxRbXzxfDT3FxY6pCVhTjg3CDdh66+HzQecQN+QfH3GLt/XWSzA0eMr4nIKGQ4eODaFKzoQ2X1xWyhwsg0lGMZm1m1TlnFyNXfgiKPP98PbyKmFg4CtKFw4aDGWgMrfNHxuXLLnrPMLfDaNjh2iftWcYDRA59I/VkIurar47eQWsFSssBcwWzwB8oDuwbqaf1vjJXP5NduUpe5i4mY2krZJ7/gg3BqWFAWxAX3AwE/XiOFSjd44trkvG/gCRGI4pDce6HeuQ9TS2t8yDZrZ/lY/m/Zws7dn3cO3dQj+dYg9ZxIFUQCvzg0ydKD0QSrv6J+zxvBvVol4HoODLurwVrf50++GgdpnwEy/4aPHl68awzhv8z8CjOxYh/qjd+GDD3Keni/KKyuH3iueCdLPjPGBo6EtcPpnilmbKgxzT5w0bpPg+NZDife0s8DW5vH/QN3M/x2O3tYJB4y+WbkU8xQf8DScSK3HdjwKcAAAAASUVORK5CYII=" alt="Palestine Polytechnic University logo" />
+        <div class="header-copyright">
+          <strong>© 2026 Yazan Hashlamoun</strong>
+          <span class="course">Course Supervisor: Dr. Motaz Qafisheh</span>
+          <span class="rights">Palestine Polytechnic University · All rights reserved.</span>
+        </div>
+      </div>
+    </header>
+
+
+
+    <main id="mapShell">
+      <div id="mapMiniControls" class="map-mini-controls">
+        <button id="baseMapToggleBtn" class="map-fab" title="Base maps">☰</button>
+        <button id="layerToggleBtn" class="map-fab layer-fab" title="Operational layers">L</button>
+        <button id="turfToggleBtn" class="map-fab turf-fab" title="Turf.js tools">T</button>
+        <button id="locateBtn" class="map-fab locate-fab" title="Locate me">📍</button>
+      </div>
+
+      <div id="baseMapPopup" class="tool-popup base-popup">
+        <div class="popup-head">
+          <h2>Base map</h2>
+          <button class="close-popup" data-close="baseMapPopup">×</button>
+        </div>
+        <div class="section compact-section">
+          <label>Choose one base map</label>
+          <div class="radio-item">
+            <div><b>OpenStreetMap</b></div>
+            <input type="radio" name="basemap" value="osm" checked />
+          </div>
+          <div class="radio-item">
+            <div><b>Satellite Imagery</b></div>
+            <input type="radio" name="basemap" value="satellite" />
+          </div>
+          <div class="radio-item">
+            <div><b>Dark Map</b></div>
+            <input type="radio" name="basemap" value="dark" />
+          </div>
+          <div class="radio-item">
+            <div><b>3D Earth</b></div>
+            <input type="radio" name="basemap" value="globe" />
+          </div>
+        </div>
+      </div>
+
+      <div id="layerPopup" class="tool-popup layer-popup">
+        <div class="popup-head">
+          <h2>Operational layers</h2>
+          <button class="close-popup" data-close="layerPopup">×</button>
+        </div>
+        <div class="section compact-section">
+          <div class="layer-item">
+            <div><b>World country classes</b></div>
+            <input type="checkbox" data-layer="worldClassification" checked />
+          </div>
+          <div class="layer-item">
+            <div><b>Search result</b></div>
+            <input type="checkbox" data-layer="searchResult" checked />
+          </div>
+          <div class="layer-item">
+            <div><b>User location</b></div>
+            <input type="checkbox" data-layer="user" checked />
+          </div>
+          <div class="layer-item">
+            <div><b>Turf analysis</b></div>
+            <input type="checkbox" data-layer="turf" checked />
+          </div>
+        </div>
+      </div>
+
+      <div id="turfPopup" class="tool-popup turf-popup">
+        <div class="popup-head">
+          <h2>Turf.js tools</h2>
+          <button class="close-popup" data-close="turfPopup">×</button>
+        </div>
+        <div class="section compact-section">
+          <div class="grid-2">
+            <button class="purple" id="addPointModeBtn">Points: Off</button>
+            <button class="purple" id="distancePointsBtn">Distance</button>
+            <button class="purple" id="areaPointsBtn">Area</button>
+            <button class="danger" id="clearPointsBtn">Clear Points</button>
+          </div>
+          <div class="tool-status" id="turfPointStatus">Points: 0</div>
+          <hr style="border:0;border-top:1px solid rgba(255,255,255,.12); margin:10px 0;">
+          <div class="grid-2">
+            <button class="purple" id="bufferBtn">60 km Buffer</button>
+            <button class="purple" id="centerBtn">Country Center</button>
+            <button class="purple" id="bboxBtn">Bounding Box</button>
+            <button class="purple" id="distanceBtn">Distance from Me</button>
+          </div>
+          <button class="danger" style="margin-top:8px;" id="clearTurfBtn">Clear All Turf</button>
+        </div>
+      </div>
+
+      <div class="loading" id="loadingBox">Loading live data...</div>
+      <div id="leafletMap"></div>
+      <div id="globePanel">
+        <div class="globe-note">3D Earth mode: drag to rotate, wheel to zoom, and click any country to update the dashboard.</div>
+        <svg id="globeSvg"></svg>
+      </div>
+      <div id="legend" class="legend"></div>
+      <div id="hoverBox" class="hover-box"></div>
+    </main>
+
+    <section class="dashboard">
+      <div class="card" id="searchCard">
+        <h3>Search country or city</h3>
+        <label for="placeSearch">Country / city name</label>
+        <input id="placeSearch" list="countryList" placeholder="Example: Palestine, Spain, Paris, Hebron" />
+        <datalist id="countryList"></datalist>
+        <button id="searchBtn">Search and update dashboard</button>
+      </div>
+
+      <div class="card" id="countryCard">
+        <h3>Country dashboard</h3>
+        <div class="hint">Click any country on the world map, or search for a country/city.</div>
+      </div>
+
+      <div class="card" id="globalLayerCard">
+        <h3>Global data layer</h3>
+        <label for="themeSelect">Map theme</label>
+        <select id="themeSelect">
+          <option value="classification">First / Second / Third World Classification</option>
+          <option value="populationDensity">Population Density</option>
+          <option value="population">Population</option>
+          <option value="gdp">GDP</option>
+          <option value="gdpPerCapita">GDP per Capita</option>
+        </select>
+        <label for="yearSelect">World Bank year</label>
+        <select id="yearSelect">
+          <option value="2024">2024</option>
+          <option value="2023" selected>2023</option>
+          <option value="2022">2022</option>
+          <option value="2021">2021</option>
+          <option value="2020">2020</option>
+        </select>
+      </div>
+
+      <div class="card" id="weatherCard">
+        <h3>Weather dashboard</h3>
+        <div class="hint">Weather will be shown for the selected capital or city.</div>
+      </div>
+
+      <div class="card" id="detailsCard">
+        <h3>Selected feature details</h3>
+        <div class="hint">Click a country, city, road, attraction, flight, or Turf.js output to see details here.</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    /************************************************************
+     * Smart Travel & Global Country Classifier Dashboard
+     * Single-file HTML project:
+     * Leaflet + REST Countries + World Bank + Nominatim
+     * + Overpass API + Open-Meteo + OpenSky fallback demo
+     * + Turf.js + D3 Orthographic 3D Earth.
+     ************************************************************/
+
+    const API = {
+      REST_COUNTRIES: "https://restcountries.com/v3.1/all?fields=name,cca2,cca3,capital,latlng,population,region,subregion,area,flags,currencies,languages,borders,landlocked,maps,timezones,continents,startOfWeek,status,independent",
+      REST_COUNTRIES_ALL: "https://restcountries.com/v3.1/all",
+      REST_COUNTRIES_ALPHA: "https://restcountries.com/v3.1/alpha/",
+      WORLD_GEOJSON: "https://cdn.jsdelivr.net/gh/johan/world.geo.json@master/countries.geo.json",
+      WORLD_BANK_COUNTRIES: "https://api.worldbank.org/v2/country?format=json&per_page=400",
+      WORLD_BANK_GDP: "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.CD?format=json&per_page=20000&date=",
+      WORLD_BANK_POPULATION: "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?format=json&per_page=20000&date=",
+      WORLD_BANK_AREA: "https://api.worldbank.org/v2/country/all/indicator/AG.SRF.TOTL.K2?format=json&per_page=20000&MRV=1",
+      NOMINATIM: "https://nominatim.openstreetmap.org/search",
+      OVERPASS: "https://overpass-api.de/api/interpreter",
+      OPEN_METEO: "https://api.open-meteo.com/v1/forecast",
+      OPENSKY: "https://opensky-network.org/api/states/all"
+    };
+
+    const FIXED_RADIUS_KM = 60;
+
+    const CLASS_COLORS = {
+      first: "#22c55e",
+      second: "#f59e0b",
+      third: "#ef4444",
+      unknown: "#64748b"
+    };
+
+    const METRIC_COLORS = ["#dcfce7", "#86efac", "#22c55e", "#f59e0b", "#ef4444"];
+    const THEMATIC_WATER_COLOR = "#0ea5e9";
+
+    let restCountries = [];
+    let countryGeoJSON = null;
+    let worldBankCountries = [];
+    let gdpByIso3 = {};
+    let populationByIso3 = {};
+    let areaByIso3 = {};
+    let restByIso3 = {};
+    let restByIso2 = {};
+    let wbByIso3 = {};
+    let wbByIso2 = {};
+    let featureByIso3 = {};
+    let countryLayerByIso3 = {};
+    let selectedCountryIso3 = null;
+    let selectedCountryLayer = null;
+    let selectedAnalysisFeature = null;
+    let selectedAnalysisName = "";
+    let currentFocus = { lat: 31.9, lon: 35.2, name: "Palestine", type: "country" };
+    let currentBaseLayer = null;
+    let currentBaseType = "osm";
+    let thematicWaterLayer = null;
+    let globeScaleBoost = 1;
+    let globeWasDragged = false;
+    let userLocation = null;
+    let turfPointMode = false;
+    let turfPointCoords = [];
+    let turfPointMarkers = [];
+    let turfMeasureLayer = null;
+    let demoFlightTimer = null;
+    let demoFlights = [];
+    let globeProjection = null;
+    let globePath = null;
+    let globeSvg = null;
+    let globeCountryPaths = null;
+    let globeRotation = [0, -15];
+
+    const el = (id) => document.getElementById(id);
+    const loadingBox = el("loadingBox");
+
+    const map = L.map("leafletMap", {
+      zoomControl: false,
+      preferCanvas: true,
+      worldCopyJump: true
+    }).setView([20, 0], 2);
+
+    map.createPane("thematicWaterPane");
+    map.getPane("thematicWaterPane").style.zIndex = 355;
+    map.getPane("thematicWaterPane").style.pointerEvents = "none";
+    map.createPane("countryThemePane");
+    map.getPane("countryThemePane").style.zIndex = 360;
+
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+
+    const baseLayers = {
+      osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }),
+      satellite: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19,
+        attribution: "Tiles &copy; Esri, Maxar, Earthstar Geographics, and contributors"
+      }),
+      dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+      })
+    };
+
+    currentBaseLayer = baseLayers.osm.addTo(map);
+    thematicWaterLayer = L.rectangle([[-90, -180], [90, 180]], {
+      pane: "thematicWaterPane",
+      stroke: false,
+      fillColor: THEMATIC_WATER_COLOR,
+      fillOpacity: .88,
+      interactive: false
+    }).addTo(map);
+
+    const layers = {
+      worldClassification: L.layerGroup().addTo(map),
+      roads: L.layerGroup().addTo(map),
+      cityNames: L.layerGroup().addTo(map),
+      tourism: L.layerGroup().addTo(map),
+      flights: L.layerGroup().addTo(map),
+      searchResult: L.layerGroup().addTo(map),
+      user: L.layerGroup().addTo(map),
+      turf: L.layerGroup().addTo(map)
+    };
+
+    function escapeHTML(value) {
+      if (value === null || value === undefined) return "";
+      return String(value).replace(/[&<>'"]/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+      }[ch]));
+    }
+
+    function setLoading(message, isShown = true) {
+      loadingBox.textContent = message || "Loading live data...";
+      loadingBox.classList.toggle("show", isShown);
+    }
+
+    function formatNumber(num, digits = 0) {
+      if (num === null || num === undefined || Number.isNaN(Number(num))) return "No data";
+      return Number(num).toLocaleString("en-US", { maximumFractionDigits: digits });
+    }
+
+    function formatMoney(num) {
+      if (num === null || num === undefined || Number.isNaN(Number(num))) return "No data";
+      const n = Number(num);
+      if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+      if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+      if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+      return `$${formatNumber(n, 0)}`;
+    }
+
+    function valuesList(obj) {
+      if (!obj) return "No data";
+      if (Array.isArray(obj)) return obj.join(", ");
+      return Object.values(obj).map(v => typeof v === "string" ? v : (v.name || JSON.stringify(v))).join(", ");
+    }
+
+    function currencyList(obj) {
+      if (!obj) return "No data";
+      return Object.values(obj).map(c => `${c.name || ""}${c.symbol ? " (" + c.symbol + ")" : ""}`).join(", ");
+    }
+
+    async function fetchJSON(url, options = {}, timeoutMs = 30000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setDetails(title, html) {
+      el("detailsCard").innerHTML = `<h3>${escapeHTML(title)}</h3>${html}`;
+    }
+
+    function countryIso3(feature) {
+      return feature?.id || feature?.properties?.ISO_A3 || feature?.properties?.ADM0_A3 || feature?.properties?.iso_a3 || "";
+    }
+
+    function countryName(iso3, feature = null) {
+      return restByIso3[iso3]?.name?.common || wbByIso3[iso3]?.name || feature?.properties?.name || iso3 || "Unknown country";
+    }
+
+    function getClassInfo(iso3) {
+      const incomeCode = wbByIso3[iso3]?.incomeLevel?.id;
+      const incomeText = wbByIso3[iso3]?.incomeLevel?.value || "No data";
+      if (incomeCode === "HIC") return { key: "first", label: "First World", detail: "High income", incomeText };
+      if (incomeCode === "UMC") return { key: "second", label: "Second World", detail: "Upper-middle income", incomeText };
+      if (incomeCode === "LMC" || incomeCode === "LIC") return { key: "third", label: "Third World", detail: "Lower-middle / Low income", incomeText };
+      return { key: "unknown", label: "No data", detail: "Unclassified", incomeText };
+    }
+
+    function getPopulation(iso3) {
+      const restPop = restByIso3[iso3]?.population;
+      const wbPop = populationByIso3[iso3];
+      const value = Number(restPop ?? wbPop);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function getArea(iso3) {
+      const restArea = restByIso3[iso3]?.area;
+      const wbArea = areaByIso3[iso3];
+      const value = Number(restArea ?? wbArea);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function getDensity(iso3) {
+      const pop = getPopulation(iso3);
+      const area = getArea(iso3);
+      if (!pop || !area) return null;
+      return pop / area;
+    }
+
+    function getGdp(iso3) {
+      const value = Number(gdpByIso3[iso3]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function getGdpPerCapita(iso3) {
+      const pop = getPopulation(iso3);
+      const gdp = getGdp(iso3);
+      if (!pop || !gdp) return null;
+      return gdp / pop;
+    }
+
+    function getMetricValue(iso3) {
+      const theme = el("themeSelect").value;
+      if (theme === "populationDensity") return getDensity(iso3);
+      if (theme === "population") return getPopulation(iso3);
+      if (theme === "gdp") return getGdp(iso3);
+      if (theme === "gdpPerCapita") return getGdpPerCapita(iso3);
+      return getClassInfo(iso3).label;
+    }
+
+    function metricBins(theme) {
+      if (theme === "populationDensity") return [0, 25, 75, 150, 300, 800];
+      if (theme === "population") return [0, 1000000, 10000000, 30000000, 100000000, 300000000];
+      if (theme === "gdp") return [0, 10000000000, 50000000000, 200000000000, 1000000000000, 3000000000000];
+      if (theme === "gdpPerCapita") return [0, 2000, 8000, 20000, 50000, 100000];
+      return [];
+    }
+
+    function colorForMetric(value, theme) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return CLASS_COLORS.unknown;
+      const bins = metricBins(theme);
+      for (let i = bins.length - 1; i >= 1; i--) {
+        if (value >= bins[i]) return METRIC_COLORS[Math.min(i - 1, METRIC_COLORS.length - 1)];
+      }
+      return METRIC_COLORS[0];
+    }
+
+    function countryFillColor(iso3) {
+      const theme = el("themeSelect").value;
+      if (theme === "classification") return CLASS_COLORS[getClassInfo(iso3).key];
+      return colorForMetric(getMetricValue(iso3), theme);
+    }
+
+    function countryStyle(feature) {
+      const iso3 = countryIso3(feature);
+      const isSelected = iso3 && iso3 === selectedCountryIso3;
+      return {
+        color: isSelected ? "#ffffff" : "rgba(15,23,42,.72)",
+        weight: isSelected ? 2.5 : .8,
+        fillColor: countryFillColor(iso3),
+        fillOpacity: iso3 ? .88 : .30,
+        opacity: 1
+      };
+    }
+
+    function metricLabel(theme = el("themeSelect").value) {
+      return {
+        classification: "First / Second / Third World",
+        populationDensity: "Population Density (people/km²)",
+        population: "Population",
+        gdp: `GDP (${el("yearSelect").value})`,
+        gdpPerCapita: `GDP per Capita (${el("yearSelect").value})`
+      }[theme] || "Metric";
+    }
+
+    function formattedMetric(iso3) {
+      const theme = el("themeSelect").value;
+      const value = getMetricValue(iso3);
+      if (theme === "classification") return getClassInfo(iso3).label;
+      if (theme === "populationDensity") return `${formatNumber(value, 1)} people/km²`;
+      if (theme === "population") return formatNumber(value, 0);
+      if (theme === "gdp") return formatMoney(value);
+      if (theme === "gdpPerCapita") return value ? formatMoney(value) : "No data";
+      return String(value ?? "No data");
+    }
+
+    function updateLegend() {
+      const theme = el("themeSelect").value;
+      const box = el("legend");
+      if (theme === "classification") {
+        box.innerHTML = `
+          <h4>World Classification Legend</h4>
+          <div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${CLASS_COLORS.first}"></span>First World</div><span>High income</span></div>
+          <div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${CLASS_COLORS.second}"></span>Second World</div><span>Upper-middle</span></div>
+          <div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${CLASS_COLORS.third}"></span>Third World</div><span>Lower/Low</span></div>
+          <div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${CLASS_COLORS.unknown}"></span>No data</div><span>Unclassified</span></div>
+          <div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${THEMATIC_WATER_COLOR}"></span>Water bodies</div><span>Ocean/sea</span></div>
+        `;
+        return;
+      }
+
+      const bins = metricBins(theme);
+      const rows = [];
+      for (let i = 0; i < METRIC_COLORS.length; i++) {
+        const min = bins[i];
+        const max = bins[i + 1];
+        const label = i === METRIC_COLORS.length - 1 ? `≥ ${formatBin(min, theme)}` : `${formatBin(min, theme)} - ${formatBin(max, theme)}`;
+        rows.push(`<div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${METRIC_COLORS[i]}"></span>${label}</div></div>`);
+      }
+      rows.push(`<div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${CLASS_COLORS.unknown}"></span>No data</div></div>`);
+      rows.push(`<div class="legend-row"><div class="legend-left"><span class="swatch" style="background:${THEMATIC_WATER_COLOR}"></span>Water bodies</div></div>`);
+      box.innerHTML = `<h4>${escapeHTML(metricLabel(theme))}</h4>${rows.join("")}`;
+    }
+
+    function formatBin(value, theme) {
+      if (theme === "gdp") return formatMoney(value);
+      if (theme === "gdpPerCapita") return value >= 1000 ? `$${formatNumber(value / 1000, 0)}k` : `$${formatNumber(value, 0)}`;
+      if (theme === "population") {
+        if (value >= 1000000) return `${formatNumber(value / 1000000, 0)}M`;
+        return formatNumber(value, 0);
+      }
+      return formatNumber(value, 0);
+    }
+
+    function showHover(event, html) {
+      const box = el("hoverBox");
+      const rect = el("mapShell").getBoundingClientRect();
+      box.innerHTML = html;
+      box.style.display = "block";
+      box.style.left = `${event.clientX - rect.left + 14}px`;
+      box.style.top = `${event.clientY - rect.top + 14}px`;
+    }
+
+    function hideHover() {
+      el("hoverBox").style.display = "none";
+    }
+
+    function updateHoverPosition(event) {
+      const box = el("hoverBox");
+      const rect = el("mapShell").getBoundingClientRect();
+      if (box.style.display !== "block") return;
+      box.style.left = `${event.clientX - rect.left + 14}px`;
+      box.style.top = `${event.clientY - rect.top + 14}px`;
+    }
+
+    function countryHoverHTML(iso3, feature) {
+      const cls = getClassInfo(iso3);
+      return `
+        <b>${escapeHTML(countryName(iso3, feature))}</b>
+        <div>${escapeHTML(metricLabel())}: <strong>${escapeHTML(formattedMetric(iso3))}</strong></div>
+        <div>Class: <strong>${escapeHTML(cls.label)}</strong></div>
+        <div>ISO_A3: <strong>${escapeHTML(iso3 || "No data")}</strong></div>
+      `;
+    }
+
+    function buildWorldLayer() {
+      layers.worldClassification.clearLayers();
+      countryLayerByIso3 = {};
+      const worldLayer = L.geoJSON(countryGeoJSON, {
+        pane: "countryThemePane",
+        style: countryStyle,
+        onEachFeature: (feature, layer) => {
+          const iso3 = countryIso3(feature);
+          if (iso3) {
+            countryLayerByIso3[iso3] = layer;
+            featureByIso3[iso3] = feature;
+          }
+          layer.on({
+            mouseover: (e) => {
+              if (iso3 !== selectedCountryIso3) {
+                e.target.setStyle({ weight: 2, color: "#ffffff", fillOpacity: .86 });
+              }
+              showHover(e.originalEvent, countryHoverHTML(iso3, feature));
+            },
+            mousemove: (e) => updateHoverPosition(e.originalEvent),
+            mouseout: (e) => {
+              if (iso3 !== selectedCountryIso3) e.target.setStyle(countryStyle(feature));
+              hideHover();
+            },
+            click: () => selectCountryByIso3(iso3, { zoom: false, loadArea: true })
+          });
+        }
+      }).addTo(layers.worldClassification);
+      syncLayerVisibility();
+    }
+
+    function updateWorldStyles() {
+      Object.entries(countryLayerByIso3).forEach(([iso3, layer]) => {
+        layer.setStyle(countryStyle(layer.feature));
+      });
+      updateLegend();
+      updateThematicWaterVisibility();
+      renderGlobe();
+    }
+
+    function highlightSelectedCountry(iso3) {
+      if (selectedCountryLayer && selectedCountryLayer.feature) {
+        selectedCountryLayer.setStyle(countryStyle(selectedCountryLayer.feature));
+      }
+      selectedCountryIso3 = iso3;
+      selectedCountryLayer = countryLayerByIso3[iso3] || null;
+      if (selectedCountryLayer) {
+        selectedCountryLayer.setStyle(countryStyle(selectedCountryLayer.feature));
+        selectedCountryLayer.bringToFront();
+      }
+      renderGlobe();
+    }
+
+    function findCountry(query) {
+      const q = String(query || "").trim().toLowerCase();
+      if (!q) return null;
+      return restCountries.find(c =>
+        c.cca3?.toLowerCase() === q ||
+        c.cca2?.toLowerCase() === q ||
+        c.name?.common?.toLowerCase() === q ||
+        c.name?.official?.toLowerCase() === q
+      ) || null;
+    }
+
+    function iso3FromIso2(iso2) {
+      const code = String(iso2 || "").trim().toUpperCase();
+      if (!code) return null;
+      if (restByIso2[code]?.cca3) return restByIso2[code].cca3;
+      if (wbByIso2[code]?.id) return wbByIso2[code].id;
+      const wbMatch = worldBankCountries.find(row => row.iso2Code === code);
+      if (wbMatch?.id) return wbMatch.id;
+      const restMatch = restCountries.find(c => c.cca2 === code);
+      return restMatch?.cca3 || null;
+    }
+
+    function countryFromIso3(iso3) {
+      return iso3 ? (restByIso3[iso3] || restCountries.find(c => c.cca3 === iso3) || null) : null;
+    }
+
+    function mergeRestCountryRecord(country) {
+      if (!country || !country.cca3) return;
+      const previous = restByIso3[country.cca3] || {};
+      const merged = { ...previous, ...country };
+      restByIso3[country.cca3] = merged;
+      if (merged.cca2) restByIso2[merged.cca2] = merged;
+      const idx = restCountries.findIndex(c => c.cca3 === merged.cca3);
+      if (idx >= 0) restCountries[idx] = merged;
+      else restCountries.push(merged);
+    }
+
+    function restDetailsMissing(country) {
+      return !country || !country.currencies || !country.languages || typeof country.landlocked !== "boolean" || !Array.isArray(country.borders);
+    }
+
+    async function ensureRestCountryDetails(iso3) {
+      if (!iso3 || !restDetailsMissing(restByIso3[iso3])) return restByIso3[iso3] || null;
+      try {
+        const data = await fetchJSON(`${API.REST_COUNTRIES_ALPHA}${encodeURIComponent(iso3)}`, {}, 18000);
+        const country = Array.isArray(data) ? data[0] : data;
+        if (country?.cca3) {
+          mergeRestCountryRecord(country);
+          return restByIso3[country.cca3];
+        }
+      } catch (err) {
+        console.warn("REST Countries alpha lookup failed", iso3, err);
+      }
+      return restByIso3[iso3] || null;
+    }
+
+    async function loadRestCountries() {
+      let data = [];
+      try {
+        data = await fetchJSON(API.REST_COUNTRIES, {}, 25000);
+      } catch (err) {
+        console.warn("REST Countries field-filtered request failed; trying full endpoint", err);
+        try {
+          data = await fetchJSON(API.REST_COUNTRIES_ALL, {}, 30000);
+        } catch (err2) {
+          console.warn("REST Countries full request failed; dashboard will use World Bank data and per-country lookup on click", err2);
+          data = [];
+        }
+      }
+
+      restCountries = Array.isArray(data) ? data : [];
+      restCountries.sort((a, b) => (a.name?.common || "").localeCompare(b.name?.common || ""));
+      restByIso3 = {};
+      restByIso2 = {};
+      restCountries.forEach(mergeRestCountryRecord);
+      el("countryList").innerHTML = restCountries.map(c => `<option value="${escapeHTML(c.name?.common || c.cca3)}"></option>`).join("");
+    }
+
+    async function loadWorldBankCountries() {
+      const data = await fetchJSON(API.WORLD_BANK_COUNTRIES, {}, 25000);
+      worldBankCountries = Array.isArray(data?.[1]) ? data[1].filter(row => row.region?.value !== "Aggregates") : [];
+      wbByIso3 = {};
+      wbByIso2 = {};
+      worldBankCountries.forEach(row => {
+        if (row.id) wbByIso3[row.id] = row;
+        if (row.iso2Code) wbByIso2[row.iso2Code] = row;
+      });
+    }
+
+    async function loadWorldBankNumericIndicator(url, targetObject, label) {
+      Object.keys(targetObject).forEach(key => delete targetObject[key]);
+      try {
+        const data = await fetchJSON(url, {}, 30000);
+        const rows = Array.isArray(data?.[1]) ? data[1] : [];
+        rows.forEach(row => {
+          const iso = row.countryiso3code;
+          const value = Number(row.value);
+          if (iso && iso.length === 3 && Number.isFinite(value) && value > 0) {
+            targetObject[iso] = value;
+          }
+        });
+      } catch (err) {
+        console.warn(`World Bank ${label} failed`, err);
+      }
+    }
+
+    async function loadGdpData(year) {
+      await loadWorldBankNumericIndicator(API.WORLD_BANK_GDP + encodeURIComponent(year), gdpByIso3, "GDP");
+    }
+
+    async function loadPopulationData(year) {
+      await loadWorldBankNumericIndicator(API.WORLD_BANK_POPULATION + encodeURIComponent(year), populationByIso3, "population");
+    }
+
+    async function loadAreaData() {
+      await loadWorldBankNumericIndicator(API.WORLD_BANK_AREA, areaByIso3, "surface area");
+    }
+
+    function cloneCoordinates(coords) {
+      return JSON.parse(JSON.stringify(coords));
+    }
+
+    function reversePolygonRings(coords) {
+      return coords.map(ring => [...ring].reverse());
+    }
+
+    function reverseFeatureRings(feature) {
+      const clone = {
+        ...feature,
+        properties: { ...(feature.properties || {}) },
+        geometry: feature.geometry ? { ...feature.geometry, coordinates: cloneCoordinates(feature.geometry.coordinates) } : feature.geometry
+      };
+      if (!clone.geometry) return clone;
+      if (clone.geometry.type === "Polygon") {
+        clone.geometry.coordinates = reversePolygonRings(clone.geometry.coordinates);
+      } else if (clone.geometry.type === "MultiPolygon") {
+        clone.geometry.coordinates = clone.geometry.coordinates.map(poly => reversePolygonRings(poly));
+      }
+      return clone;
+    }
+
+    function normalizeWorldGeoJSONForD3(geojson) {
+      if (!geojson || !Array.isArray(geojson.features) || typeof d3 === "undefined" || !d3.geoArea) return geojson;
+      geojson.features = geojson.features.map(feature => {
+        try {
+          // Some country GeoJSON files contain rings with a winding order that makes
+          // D3 fill the complement of small islands/territories. When that happens,
+          // oceans receive the thematic country color. Rewind those features so the
+          // blue water layer remains visible for every map theme.
+          return d3.geoArea(feature) > Math.PI * 2 ? reverseFeatureRings(feature) : feature;
+        } catch (err) {
+          return feature;
+        }
+      });
+      return geojson;
+    }
+
+    async function loadWorldGeoJSON() {
+      countryGeoJSON = await fetchJSON(API.WORLD_GEOJSON, {}, 30000);
+      if (!countryGeoJSON || !Array.isArray(countryGeoJSON.features)) {
+        throw new Error("Invalid world GeoJSON");
+      }
+      countryGeoJSON = normalizeWorldGeoJSONForD3(countryGeoJSON);
+      featureByIso3 = {};
+      countryGeoJSON.features.forEach(f => {
+        const iso3 = countryIso3(f);
+        if (iso3) featureByIso3[iso3] = f;
+      });
+    }
+
+    function updateCountryDashboard(iso3) {
+      const c = restByIso3[iso3] || {};
+      const wb = wbByIso3[iso3] || {};
+      const feature = featureByIso3[iso3];
+      const cls = getClassInfo(iso3);
+      const population = getPopulation(iso3);
+      const area = getArea(iso3);
+      const density = getDensity(iso3);
+      const gdp = getGdp(iso3);
+      const gdpPc = getGdpPerCapita(iso3);
+      const capital = c.capital?.[0] || wb.capitalCity || "No data";
+      const lat = c.latlng?.[0] ?? wb.latitude ?? null;
+      const lon = c.latlng?.[1] ?? wb.longitude ?? null;
+
+      el("countryCard").innerHTML = `
+        <h3>Country dashboard</h3>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          ${c.flags?.svg ? `<img class="flag" src="${c.flags.svg}" alt="${escapeHTML(countryName(iso3, feature))} flag">` : ""}
+          <div>
+            <b style="font-size:18px;">${escapeHTML(countryName(iso3, feature))}</b><br>
+            <span class="badge" style="background:${countryFillColor(iso3)}22;border-color:${countryFillColor(iso3)}55;color:#fff;">${escapeHTML(cls.label)}</span>
+          </div>
+        </div>
+        <div class="mini-stats">
+          <div class="stat"><b>${formatNumber(population)}</b><span>Population</span></div>
+          <div class="stat"><b>${area ? `${formatNumber(area)} km²` : "No data"}</b><span>Area</span></div>
+          <div class="stat"><b>${density ? formatNumber(density, 1) : "No data"}</b><span>Density / km²</span></div>
+          <div class="stat"><b>${formatMoney(gdp)}</b><span>GDP ${escapeHTML(el("yearSelect").value)}</span></div>
+        </div>
+        <div class="row"><span>ISO_A2 / ISO_A3</span><strong>${escapeHTML(c.cca2 || wb.iso2Code || "--")} / ${escapeHTML(iso3 || "--")}</strong></div>
+        <div class="row"><span>Capital</span><strong>${escapeHTML(capital)}</strong></div>
+        <div class="row"><span>World Bank income level</span><strong>${escapeHTML(cls.incomeText)}</strong></div>
+        <div class="row"><span>Classification logic</span><strong>${escapeHTML(cls.detail)}</strong></div>
+        <div class="row"><span>Region</span><strong>${escapeHTML(c.region || wb.region?.value || "No data")}</strong></div>
+        <div class="row"><span>Subregion</span><strong>${escapeHTML(c.subregion || wb.adminregion?.value || "No data")}</strong></div>
+        <div class="row"><span>GDP per capita</span><strong>${gdpPc ? formatMoney(gdpPc) : "No data"}</strong></div>
+      `;
+
+      const quickCard = el("countryQuickCard");
+      if (quickCard) {
+        quickCard.innerHTML = `
+          <h3>Selected Country</h3>
+          <div class="quick-head">
+            ${c.flags?.svg ? `<img class="flag" src="${c.flags.svg}" alt="${escapeHTML(countryName(iso3, feature))} flag">` : ""}
+            <div>
+              <div class="quick-title">${escapeHTML(countryName(iso3, feature))}</div>
+              <div class="quick-sub">${escapeHTML(cls.label)} · ISO_A3: ${escapeHTML(iso3 || "--")}</div>
+            </div>
+          </div>
+          <div class="quick-grid">
+            <div class="quick-stat"><b>${escapeHTML(capital)}</b><span>Capital</span></div>
+            <div class="quick-stat"><b>${formatNumber(population)}</b><span>Population</span></div>
+            <div class="quick-stat"><b>${escapeHTML(currencyList(c.currencies))}</b><span>Currency</span></div>
+            <div class="quick-stat"><b>${density ? formatNumber(density, 1) : "No data"}</b><span>Density / km²</span></div>
+          </div>
+        `;
+      }
+    }
+
+    async function selectCountryByIso3(iso3, opts = {}) {
+      if (!iso3) return;
+      await ensureRestCountryDetails(iso3);
+      highlightSelectedCountry(iso3);
+      updateCountryDashboard(iso3);
+      const c = restByIso3[iso3] || {};
+      const wb = wbByIso3[iso3] || {};
+      const feature = featureByIso3[iso3];
+      const name = countryName(iso3, feature);
+      const capital = c.capital?.[0] || wb.capitalCity || name;
+      let lat = Number(c.latlng?.[0] ?? wb.latitude);
+      let lon = Number(c.latlng?.[1] ?? wb.longitude);
+
+      if ((!Number.isFinite(lat) || !Number.isFinite(lon)) && feature) {
+        try {
+          const center = turf.center(feature).geometry.coordinates;
+          lon = center[0];
+          lat = center[1];
+        } catch (err) {}
+      }
+
+      selectedAnalysisFeature = feature ? JSON.parse(JSON.stringify(feature)) : null;
+      selectedAnalysisName = name;
+      currentFocus = { lat, lon, name: capital, type: "country", iso3 };
+      if (el("globePanel").style.display === "block" && Number.isFinite(lat) && Number.isFinite(lon) && opts.rotateGlobe !== false) {
+        globeRotation = [-lon, -lat];
+        renderGlobe();
+      }
+      setDetails("Selected country", `
+        <div class="row"><span>Country</span><strong>${escapeHTML(name)}</strong></div>
+        <div class="row"><span>Class</span><strong>${escapeHTML(getClassInfo(iso3).label)}</strong></div>
+        <div class="row"><span>${escapeHTML(metricLabel())}</span><strong>${escapeHTML(formattedMetric(iso3))}</strong></div>
+        <div class="row"><span>ISO_A3</span><strong>${escapeHTML(iso3)}</strong></div>
+      `);
+
+      if (opts.zoom !== false && countryLayerByIso3[iso3]) {
+        map.fitBounds(countryLayerByIso3[iso3].getBounds().pad(0.08));
+      }
+
+      if (Number.isFinite(lat) && Number.isFinite(lon) && opts.loadArea !== false) {
+        await loadWeather(lat, lon, capital);
+        await loadOsmAreaData(lat, lon, capital);
+        await loadFlightsAround(lat, lon, capital);
+      }
+    }
+
+    async function geocodePlace(query, polygon = false) {
+      const url = `${API.NOMINATIM}?format=jsonv2&limit=1&addressdetails=1&polygon_geojson=${polygon ? 1 : 0}&q=${encodeURIComponent(query)}`;
+      const results = await fetchJSON(url, { headers: { "Accept": "application/json" } }, 20000);
+      if (!Array.isArray(results) || !results.length) return null;
+      return results[0];
+    }
+
+    async function searchPlace() {
+      const query = el("placeSearch").value.trim();
+      if (!query) return alert("Type a country or city name first.");
+      const directCountry = findCountry(query);
+      if (directCountry?.cca3) {
+        await selectCountryByIso3(directCountry.cca3, { zoom: true, loadArea: true, rotateGlobe: true });
+        return;
+      }
+
+      try {
+        setLoading(`Searching for ${query}...`, true);
+        const result = await geocodePlace(query, false);
+        if (!result) return alert("No matching country or city was found.");
+
+        const lat = Number(result.lat);
+        const lon = Number(result.lon);
+        const displayName = result.display_name || query;
+        const iso2 = result.address?.country_code?.toUpperCase();
+        const resolvedIso3 = iso3FromIso2(iso2);
+        let country = countryFromIso3(resolvedIso3);
+        if (resolvedIso3) {
+          await selectCountryByIso3(resolvedIso3, { zoom: false, loadArea: false, rotateGlobe: true });
+          country = countryFromIso3(resolvedIso3) || country;
+        }
+
+        currentFocus = { lat, lon, name: query, type: "city", iso3: resolvedIso3 || null };
+        map.setView([lat, lon], 11);
+        layers.searchResult.clearLayers();
+        const icon = L.divIcon({ className: "", html: `<div class="search-marker">📍</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+        L.marker([lat, lon], { icon })
+          .bindPopup(`<b>${escapeHTML(query)}</b><br>${escapeHTML(displayName)}`)
+          .addTo(layers.searchResult)
+          .openPopup();
+
+        setDetails("Selected place", `
+          <div class="row"><span>Name</span><strong>${escapeHTML(query)}</strong></div>
+          <div class="row"><span>Country</span><strong>${escapeHTML(country?.name?.common || result.address?.country || "No data")}</strong></div>
+          <div class="row"><span>Coordinates</span><strong>${lat.toFixed(5)}, ${lon.toFixed(5)}</strong></div>
+          <div class="row"><span>Turf drawing</span><strong>Add points + distance/area</strong></div>
+        `);
+
+        await loadWeather(lat, lon, query);
+        await loadOsmAreaData(lat, lon, query);
+        await loadFlightsAround(lat, lon, query);
+      } catch (err) {
+        console.error(err);
+        alert("Search failed. Try another country or city.");
+      } finally {
+        setLoading("", false);
+        syncLayerVisibility();
+      }
+    }
+
+    function weatherCodeText(code) {
+      const map = {
+        0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+        45: "Fog", 48: "Depositing rime fog", 51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+        61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain", 71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+        80: "Rain showers", 81: "Moderate rain showers", 82: "Violent rain showers", 95: "Thunderstorm"
+      };
+      return map[code] || `Weather code ${code}`;
+    }
+
+    async function loadWeather(lat, lon, placeName) {
+      try {
+        const url = `${API.OPEN_METEO}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=auto`;
+        const data = await fetchJSON(url, {}, 15000);
+        const current = data.current || {};
+        el("weatherCard").innerHTML = `
+          <h3>Weather - ${escapeHTML(placeName || "Selected place")}</h3>
+          <div class="mini-stats">
+            <div class="stat"><b>${current.temperature_2m ?? "--"}°C</b><span>Temperature</span></div>
+            <div class="stat"><b>${current.wind_speed_10m ?? "--"}</b><span>Wind km/h</span></div>
+            <div class="stat"><b>${current.relative_humidity_2m ?? "--"}%</b><span>Humidity</span></div>
+            <div class="stat"><b style="font-size:14px">${escapeHTML(weatherCodeText(current.weather_code))}</b><span>Condition</span></div>
+          </div>
+        `;
+      } catch (err) {
+        console.warn("Weather failed", err);
+        el("weatherCard").innerHTML = `<h3>Weather dashboard</h3><div class="hint">Weather data could not be loaded right now.</div>`;
+      }
+    }
+
+    function buildOverpassQuery(lat, lon, radiusMeters) {
+      return `
+        [out:json][timeout:30];
+        (
+          way["highway"~"motorway|trunk|primary|secondary"](around:${radiusMeters},${lat},${lon});
+          node["place"~"city|town|village|suburb"](around:${radiusMeters},${lat},${lon});
+          nwr["tourism"](around:${radiusMeters},${lat},${lon});
+          nwr["historic"](around:${radiusMeters},${lat},${lon});
+          nwr["amenity"~"museum|theatre|place_of_worship"](around:${radiusMeters},${lat},${lon});
+        );
+        out geom 1200;
+      `;
+    }
+
+    function getFeatureTags(feature) {
+      return feature?.properties?.tags || {};
+    }
+
+    function featureName(feature) {
+      const tags = getFeatureTags(feature);
+      return tags.name || tags["name:en"] || tags["name:ar"] || tags.ref || "Unnamed feature";
+    }
+
+    function styleRoad(feature) {
+      const tags = getFeatureTags(feature);
+      const highway = tags.highway || "road";
+      const weight = highway === "motorway" ? 5 : highway === "trunk" ? 4 : highway === "primary" ? 3 : 2;
+      return { color: "#f97316", weight, opacity: .9 };
+    }
+
+    function tourismIcon(feature) {
+      const tags = getFeatureTags(feature);
+      let emoji = "📍";
+      if (tags.historic) emoji = "🏛️";
+      if (tags.tourism === "museum" || tags.amenity === "museum") emoji = "🏺";
+      if (tags.tourism === "hotel") emoji = "🏨";
+      if (tags.tourism === "viewpoint") emoji = "🌄";
+      if (tags.amenity === "place_of_worship") emoji = "⛪";
+      return L.divIcon({ className: "", html: `<div class="poi-marker">${emoji}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+    }
+
+    function popupRowsFromTags(tags) {
+      const keys = ["name", "name:en", "name:ar", "highway", "tourism", "historic", "amenity", "place", "population", "wikipedia"];
+      return keys.filter(k => tags[k]).map(k => `<div class="row"><span>${escapeHTML(k)}</span><strong>${escapeHTML(tags[k])}</strong></div>`).join("");
+    }
+
+    function markerLatLng(layer) {
+      if (layer.getLatLng) {
+        const p = layer.getLatLng();
+        return { lat: p.lat, lon: p.lng };
+      }
+      if (layer.getBounds) {
+        const c = layer.getBounds().getCenter();
+        return { lat: c.lat, lon: c.lng };
+      }
+      return null;
+    }
+
+    function poiTypeFromTags(tags) {
+      if (tags.historic) return "Historic / heritage site";
+      if (tags.tourism === "museum" || tags.amenity === "museum") return "Museum";
+      if (tags.tourism === "viewpoint") return "Viewpoint";
+      if (tags.amenity === "place_of_worship") return "Religious landmark";
+      if (tags.tourism) return `Tourism: ${tags.tourism}`;
+      return "Tourism attraction";
+    }
+
+    function renderSuggestions(items) {
+      const box = el("suggestionsCard");
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = `<h3>Top tourism and historic suggestions</h3><div class="hint">No clear tourism or historic places were returned for this fixed 60 km area.</div>`;
+        return;
+      }
+      box.innerHTML = `<h3>Top tourism and historic suggestions</h3><div class="list">${items.map((item, index) => `
+        <button class="item suggestion-btn" data-lat="${item.lat}" data-lon="${item.lon}" data-name="${escapeHTML(item.name)}" data-type="${escapeHTML(item.type)}">
+          <b>${index + 1}. ${escapeHTML(item.name)}</b>
+          <span>${escapeHTML(item.type)}</span>
+        </button>`).join("")}</div>`;
+      box.querySelectorAll(".suggestion-btn").forEach(btn => {
+        btn.addEventListener("click", () => goToSuggestion(Number(btn.dataset.lat), Number(btn.dataset.lon), btn.dataset.name, btn.dataset.type));
+      });
+    }
+
+    function goToSuggestion(lat, lon, name, type) {
+      setBaseMap("osm");
+      map.setView([lat, lon], 16);
+      L.popup()
+        .setLatLng([lat, lon])
+        .setContent(`<b>${escapeHTML(name)}</b><br>${escapeHTML(type || "Suggested place")}`)
+        .openOn(map);
+      setDetails(name || "Suggested place", `
+        <div class="row"><span>Type</span><strong>${escapeHTML(type || "Suggested place")}</strong></div>
+        <div class="row"><span>Coordinates</span><strong>${lat.toFixed(5)}, ${lon.toFixed(5)}</strong></div>
+      `);
+    }
+
+    async function loadOsmAreaData(lat, lon, placeName) {
+      const radiusMeters = FIXED_RADIUS_KM * 1000;
+      const query = buildOverpassQuery(lat, lon, radiusMeters);
+      layers.cityNames.clearLayers();
+      layers.roads.clearLayers();
+      layers.tourism.clearLayers();
+      renderSuggestions([]);
+
+      try {
+        setLoading(`Loading roads, city labels, and tourism data around ${placeName}...`, true);
+        const osm = await fetchJSON(API.OVERPASS, {
+          method: "POST",
+          body: "data=" + encodeURIComponent(query),
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }
+        }, 35000);
+
+        const geojson = osmtogeojson(osm);
+        const suggestions = [];
+        const seenSuggestions = new Set();
+
+        function addSuggestion(item) {
+          if (!item || !item.name || item.name === "Unnamed feature" || !Number.isFinite(item.lat) || !Number.isFinite(item.lon)) return;
+          const key = `${item.name.toLowerCase()}:${item.lat.toFixed(4)}:${item.lon.toFixed(4)}`;
+          if (seenSuggestions.has(key)) return;
+          seenSuggestions.add(key);
+          suggestions.push(item);
+        }
+
+        L.geoJSON(geojson, {
+          filter: f => !!getFeatureTags(f).highway,
+          style: styleRoad,
+          onEachFeature: (feature, layer) => {
+            const tags = getFeatureTags(feature);
+            layer.bindPopup(`<b>${escapeHTML(featureName(feature))}</b><br>Major road`);
+            layer.on("click", () => setDetails("Major road", popupRowsFromTags(tags) || `<div class="hint">No extra road details are available.</div>`));
+          }
+        }).addTo(layers.roads);
+
+        L.geoJSON(geojson, {
+          filter: f => !!getFeatureTags(f).place,
+          pointToLayer: (feature, latlng) => {
+            const icon = L.divIcon({ className: "", html: `<div class="city-dot"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] });
+            const marker = L.marker(latlng, { icon });
+            marker.bindTooltip(escapeHTML(featureName(feature)), { permanent: true, direction: "right", className: "city-label" });
+            return marker;
+          },
+          onEachFeature: (feature, layer) => {
+            const tags = getFeatureTags(feature);
+            layer.bindPopup(`<b>${escapeHTML(featureName(feature))}</b><br>${escapeHTML(tags.place || "City / town")}`);
+            layer.on("click", () => setDetails("City / town", popupRowsFromTags(tags) || `<div class="hint">No extra city details are available.</div>`));
+          }
+        }).addTo(layers.cityNames);
+
+        L.geoJSON(geojson, {
+          filter: f => {
+            const tags = getFeatureTags(f);
+            return !!(tags.tourism || tags.historic || ["museum", "theatre", "place_of_worship"].includes(tags.amenity));
+          },
+          pointToLayer: (feature, latlng) => L.marker(latlng, { icon: tourismIcon(feature) }),
+          style: () => ({ color: "#a78bfa", weight: 2, fillColor: "#a78bfa", fillOpacity: .16 }),
+          onEachFeature: (feature, layer) => {
+            const tags = getFeatureTags(feature);
+            const name = featureName(feature);
+            const type = poiTypeFromTags(tags);
+            const point = markerLatLng(layer);
+            const score = (tags.wikipedia ? 8 : 0) + (tags.wikidata ? 6 : 0) + (tags.historic ? 8 : 0) + (tags.tourism === "museum" || tags.amenity === "museum" ? 4 : 0) + (tags.name ? 2 : 0);
+            layer.bindPopup(`<b>${escapeHTML(name)}</b><br>${escapeHTML(type)}`);
+            layer.on("click", () => setDetails(type, popupRowsFromTags(tags) || `<div class="hint">No extra attraction details are available.</div>`));
+            if (point && (tags.historic || tags.tourism || tags.amenity === "museum" || tags.amenity === "place_of_worship")) {
+              addSuggestion({ name, type, lat: point.lat, lon: point.lon, score });
+            }
+          }
+        }).addTo(layers.tourism);
+
+        renderSuggestions(suggestions.sort((a, b) => b.score - a.score).slice(0, 12));
+      } catch (err) {
+        console.warn("Overpass failed", err);
+        renderSuggestions([]);
+      } finally {
+        setLoading("", false);
+        syncLayerVisibility();
+      }
+    }
+
+    function flightIcon(heading) {
+      const rotation = Number.isFinite(Number(heading)) ? Number(heading) : 0;
+      return L.divIcon({
+        className: "flight-icon",
+        html: `<div style="transform: rotate(${rotation}deg);">✈️</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
+    }
+
+    async function loadFlightsAround(lat, lon, placeName) {
+      layers.flights.clearLayers();
+      stopDemoFlights();
+      const radiusKm = Math.min(FIXED_RADIUS_KM, 120);
+      const delta = radiusKm / 111;
+      const url = `${API.OPENSKY}?lamin=${lat - delta}&lomin=${lon - delta}&lamax=${lat + delta}&lomax=${lon + delta}`;
+
+      try {
+        const data = await fetchJSON(url, {}, 15000);
+        const states = Array.isArray(data.states) ? data.states : [];
+        const valid = states.filter(s => s[5] !== null && s[6] !== null).slice(0, 60);
+        if (!valid.length) throw new Error("No flights returned");
+
+        valid.forEach(s => {
+          const callsign = (s[1] || "Unknown").trim();
+          const originCountry = s[2] || "Unknown";
+          const longitude = s[5];
+          const latitude = s[6];
+          const altitude = s[7];
+          const velocity = s[9];
+          const heading = s[10];
+          const marker = L.marker([latitude, longitude], { icon: flightIcon(heading) }).addTo(layers.flights);
+          marker.bindPopup(`<b>${escapeHTML(callsign)}</b><br>${escapeHTML(originCountry)}<br>Altitude: ${formatNumber(altitude)} m`);
+          marker.on("click", () => setDetails("Flight information", `
+            <div class="row"><span>Callsign</span><strong>${escapeHTML(callsign)}</strong></div>
+            <div class="row"><span>Origin country</span><strong>${escapeHTML(originCountry)}</strong></div>
+            <div class="row"><span>Altitude</span><strong>${formatNumber(altitude)} m</strong></div>
+            <div class="row"><span>Speed</span><strong>${velocity ? Math.round(velocity * 3.6) : "--"} km/h</strong></div>
+            <div class="row"><span>Heading</span><strong>${heading ?? "--"}°</strong></div>
+          `));
+        });
+      } catch (err) {
+        console.warn("OpenSky failed or no flights. Using demo flights.", err);
+        createDemoFlights(lat, lon, placeName);
+      } finally {
+        syncLayerVisibility();
+      }
+    }
+
+    function createDemoFlights(lat, lon, placeName) {
+      layers.flights.clearLayers();
+      demoFlights = [];
+      const count = 8;
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 0.08 + Math.random() * 0.45;
+        const heading = Math.round(Math.random() * 360);
+        const p = {
+          id: `DEMO-${100 + i}`,
+          lat: lat + Math.sin(angle) * dist,
+          lon: lon + Math.cos(angle) * dist,
+          heading,
+          speed: 650 + Math.round(Math.random() * 260),
+          altitude: 8000 + Math.round(Math.random() * 35000)
+        };
+        const marker = L.marker([p.lat, p.lon], { icon: flightIcon(p.heading) }).addTo(layers.flights);
+        marker.bindPopup(`<b>${p.id}</b><br>Demo flight around ${escapeHTML(placeName || "selected area")}`);
+        marker.on("click", () => setDetails("Demo flight", `
+          <div class="hint">Demo data appears when OpenSky is unavailable or has no aircraft in the selected area.</div>
+          <div class="row"><span>Callsign</span><strong>${p.id}</strong></div>
+          <div class="row"><span>Altitude</span><strong>${formatNumber(p.altitude)} ft</strong></div>
+          <div class="row"><span>Speed</span><strong>${p.speed} km/h</strong></div>
+          <div class="row"><span>Heading</span><strong>${p.heading}°</strong></div>
+        `));
+        demoFlights.push({ ...p, marker });
+      }
+
+      demoFlightTimer = setInterval(() => {
+        demoFlights.forEach(f => {
+          const rad = f.heading * Math.PI / 180;
+          f.lat += Math.cos(rad) * 0.01;
+          f.lon += Math.sin(rad) * 0.01;
+          f.heading = (f.heading + (Math.random() * 12 - 6) + 360) % 360;
+          f.marker.setLatLng([f.lat, f.lon]);
+          f.marker.setIcon(flightIcon(f.heading));
+        });
+      }, 2500);
+    }
+
+    function stopDemoFlights() {
+      if (demoFlightTimer) clearInterval(demoFlightTimer);
+      demoFlightTimer = null;
+      demoFlights = [];
+    }
+
+    function locateMe() {
+      if (!navigator.geolocation) {
+        alert("This browser does not support geolocation.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        userLocation = { lat, lon };
+        layers.user.clearLayers();
+        const marker = L.circleMarker([lat, lon], {
+          radius: 9,
+          color: "#fff",
+          weight: 2,
+          fillColor: "#ef4444",
+          fillOpacity: 1
+        }).addTo(layers.user);
+        marker.bindPopup("My current location").openPopup();
+        map.setView([lat, lon], 12);
+        setDetails("My current location", `
+          <div class="row"><span>Latitude</span><strong>${lat.toFixed(5)}</strong></div>
+          <div class="row"><span>Longitude</span><strong>${lon.toFixed(5)}</strong></div>
+        `);
+      }, () => alert("Location failed. Allow location access in your browser and try again."));
+    }
+
+    function setWorldView() {
+      if (el("globePanel").style.display === "block") {
+        globeRotation = [0, -15];
+        renderGlobe();
+      } else {
+        map.setView([20, 0], 2);
+      }
+    }
+
+    function updateThematicWaterVisibility() {
+      const worldToggle = document.querySelector("input[data-layer='worldClassification']");
+      const globeMode = el("globePanel").style.display === "block";
+      const shouldShowWater = !!(worldToggle?.checked) && !globeMode;
+      if (!thematicWaterLayer) return;
+      if (shouldShowWater) {
+        if (!map.hasLayer(thematicWaterLayer)) thematicWaterLayer.addTo(map);
+      } else if (map.hasLayer(thematicWaterLayer)) {
+        map.removeLayer(thematicWaterLayer);
+      }
+    }
+
+    function syncLayerVisibility() {
+      document.querySelectorAll("input[data-layer]").forEach(input => {
+        const key = input.dataset.layer;
+        if (key === "earthInset") {
+          const inset = el("earthInset");
+          if (inset) inset.style.display = input.checked ? "block" : "none";
+          if (input.checked) renderEarthInset();
+          return;
+        }
+        if (!layers[key]) return;
+        if (input.checked) {
+          if (!map.hasLayer(layers[key])) layers[key].addTo(map);
+        } else {
+          if (map.hasLayer(layers[key])) map.removeLayer(layers[key]);
+        }
+      });
+      updateThematicWaterVisibility();
+    }
+
+    function setBaseMap(type) {
+      document.querySelectorAll("input[name='basemap']").forEach(r => r.checked = r.value === type);
+      const globeMode = type === "globe";
+      if (!globeMode) currentBaseType = type;
+      el("leafletMap").style.display = globeMode ? "none" : "block";
+      el("globePanel").style.display = globeMode ? "block" : "none";
+
+      if (globeMode) {
+        updateThematicWaterVisibility();
+        renderGlobe();
+        return;
+      }
+
+      if (currentBaseLayer && map.hasLayer(currentBaseLayer)) map.removeLayer(currentBaseLayer);
+      currentBaseLayer = baseLayers[type] || baseLayers.osm;
+      currentBaseLayer.addTo(map);
+      syncLayerVisibility();
+      setTimeout(() => map.invalidateSize(), 80);
+    }
+
+    function selectedFeatureGeoJSON() {
+      if (selectedAnalysisFeature) return selectedAnalysisFeature;
+      if (selectedCountryIso3 && featureByIso3[selectedCountryIso3]) return featureByIso3[selectedCountryIso3];
+      if (currentFocus?.iso3 && featureByIso3[currentFocus.iso3]) return featureByIso3[currentFocus.iso3];
+      if (currentFocus && Number.isFinite(currentFocus.lat) && Number.isFinite(currentFocus.lon)) {
+        return turf.point([currentFocus.lon, currentFocus.lat], { name: currentFocus.name || "Selected point" });
+      }
+      return null;
+    }
+
+    function ensureTurfLayerActive() {
+      const turfCheckbox = document.querySelector("input[data-layer='turf']");
+      if (turfCheckbox) turfCheckbox.checked = true;
+      if (!map.hasLayer(layers.turf)) layers.turf.addTo(map);
+      if (el("leafletMap").style.display === "none") {
+        setBaseMap(currentBaseType || "osm");
+      } else {
+        syncLayerVisibility();
+      }
+    }
+
+    function setTurfPointButtonState() {
+      const btn = el("addPointModeBtn");
+      if (!btn) return;
+      btn.textContent = turfPointMode ? "Points: On" : "Points: Off";
+      btn.classList.toggle("green", turfPointMode);
+      btn.classList.toggle("purple", !turfPointMode);
+      map.getContainer().style.cursor = turfPointMode ? "crosshair" : "";
+    }
+
+    function updateTurfPointStatus(message) {
+      const status = el("turfPointStatus");
+      if (!status) return;
+      status.textContent = message || `Points: ${turfPointCoords.length}`;
+    }
+
+    function turfBuffer() {
+      ensureTurfLayerActive();
+      if (!currentFocus || !Number.isFinite(currentFocus.lat) || !Number.isFinite(currentFocus.lon)) {
+        alert("Search for a country or city first.");
+        return;
+      }
+      const point = turf.point([currentFocus.lon, currentFocus.lat], { name: currentFocus.name || "Selected point" });
+      const buffered = turf.buffer(point, FIXED_RADIUS_KM, { units: "kilometers" });
+      const layer = L.geoJSON(buffered, {
+        style: { color: "#a78bfa", weight: 2, fillColor: "#a78bfa", fillOpacity: .18 }
+      }).addTo(layers.turf);
+      map.fitBounds(layer.getBounds().pad(.1));
+      setDetails("Turf.js buffer", `
+        <div class="row"><span>Tool</span><strong>turf.buffer()</strong></div>
+        <div class="row"><span>Center</span><strong>${escapeHTML(currentFocus.name || "Selected point")}</strong></div>
+        <div class="row"><span>Radius</span><strong>${FIXED_RADIUS_KM} km</strong></div>
+      `);
+      syncLayerVisibility();
+    }
+
+    function turfCountryCenter() {
+      ensureTurfLayerActive();
+      const feature = selectedCountryIso3 ? featureByIso3[selectedCountryIso3] : null;
+      if (!feature) return alert("Click or search a country first.");
+      const center = turf.center(feature);
+      const [lon, lat] = center.geometry.coordinates;
+      const icon = L.divIcon({ className: "", html: `<div class="center-marker">◎</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+      L.marker([lat, lon], { icon }).bindPopup(`Turf center of ${escapeHTML(countryName(selectedCountryIso3, feature))}`).addTo(layers.turf);
+      map.setView([lat, lon], 5);
+      setDetails("Turf.js country center", `
+        <div class="row"><span>Tool</span><strong>turf.center()</strong></div>
+        <div class="row"><span>Country</span><strong>${escapeHTML(countryName(selectedCountryIso3, feature))}</strong></div>
+        <div class="row"><span>Coordinates</span><strong>${lat.toFixed(5)}, ${lon.toFixed(5)}</strong></div>
+      `);
+      syncLayerVisibility();
+    }
+
+    function turfBoundingBox() {
+      ensureTurfLayerActive();
+      const feature = selectedFeatureGeoJSON();
+      if (!feature) return alert("Search or click a country first.");
+      const bbox = turf.bbox(feature);
+      const polygon = turf.bboxPolygon(bbox);
+      const layer = L.geoJSON(polygon, {
+        style: { color: "#38bdf8", weight: 2, dashArray: "6 6", fillColor: "#38bdf8", fillOpacity: .08 }
+      }).addTo(layers.turf);
+      map.fitBounds(layer.getBounds().pad(.1));
+      setDetails("Turf.js bounding box", `
+        <div class="row"><span>Tool</span><strong>turf.bbox() + turf.bboxPolygon()</strong></div>
+        <div class="row"><span>Selected feature</span><strong>${escapeHTML(selectedAnalysisName || (selectedCountryIso3 ? countryName(selectedCountryIso3, feature) : currentFocus.name))}</strong></div>
+        <div class="row"><span>BBox</span><strong>${bbox.map(v => v.toFixed(3)).join(", ")}</strong></div>
+      `);
+      syncLayerVisibility();
+    }
+
+    function turfDistanceFromMe() {
+      ensureTurfLayerActive();
+      if (!userLocation) return alert("Click 'Locate Me' first, then run Distance from Me.");
+      if (!currentFocus || !Number.isFinite(currentFocus.lat) || !Number.isFinite(currentFocus.lon)) return alert("Search or click a country/city first.");
+      const from = turf.point([userLocation.lon, userLocation.lat], { name: "My location" });
+      const to = turf.point([currentFocus.lon, currentFocus.lat], { name: currentFocus.name || "Selected place" });
+      const line = turf.lineString([[userLocation.lon, userLocation.lat], [currentFocus.lon, currentFocus.lat]]);
+      const km = turf.distance(from, to, { units: "kilometers" });
+      const layer = L.geoJSON(line, { style: { color: "#22c55e", weight: 4 } }).addTo(layers.turf);
+      map.fitBounds(layer.getBounds().pad(.2));
+      setDetails("Turf.js distance", `
+        <div class="row"><span>Tool</span><strong>turf.distance()</strong></div>
+        <div class="row"><span>From</span><strong>My location</strong></div>
+        <div class="row"><span>To</span><strong>${escapeHTML(currentFocus.name || "Selected place")}</strong></div>
+        <div class="row"><span>Distance</span><strong>${formatNumber(km, 2)} km</strong></div>
+      `);
+      syncLayerVisibility();
+    }
+
+    function clearTurf() {
+      layers.turf.clearLayers();
+      turfPointMode = false;
+      turfPointCoords = [];
+      turfPointMarkers = [];
+      turfMeasureLayer = null;
+      setTurfPointButtonState();
+      updateTurfPointStatus("Points: 0");
+      setDetails("Turf.js analysis cleared", `<div class="row"><span>Status</span><strong>Cleared</strong></div>`);
+    }
+
+    function refreshTurfPointGeometry() {
+      ensureTurfLayerActive();
+      if (turfMeasureLayer) {
+        layers.turf.removeLayer(turfMeasureLayer);
+        turfMeasureLayer = null;
+      }
+      const group = L.layerGroup();
+
+      if (turfPointCoords.length >= 2) {
+        const line = turf.lineString(turfPointCoords);
+        L.geoJSON(line, { style: { color: "#f59e0b", weight: 4, opacity: .95 } }).addTo(group);
+
+        for (let i = 0; i < turfPointCoords.length - 1; i++) {
+          const a = turfPointCoords[i];
+          const b = turfPointCoords[i + 1];
+          const segment = turf.lineString([a, b]);
+          const km = turf.length(segment, { units: "kilometers" });
+          const mid = turf.midpoint(turf.point(a), turf.point(b));
+          const coords = mid.geometry.coordinates;
+          L.marker([coords[1], coords[0]], {
+            interactive: false,
+            icon: L.divIcon({
+              className: "",
+              html: `<div class="distance-label">${formatNumber(km, 2)} km</div>`,
+              iconSize: [80, 22],
+              iconAnchor: [40, 11]
+            })
+          }).addTo(group);
+        }
+      }
+
+      if (turfPointCoords.length >= 3) {
+        const closed = [...turfPointCoords, turfPointCoords[0]];
+        const polygon = turf.polygon([closed]);
+        const areaM2 = turf.area(polygon);
+        const areaKm2 = areaM2 / 1000000;
+        L.geoJSON(polygon, { style: { color: "#22c55e", weight: 2, fillColor: "#22c55e", fillOpacity: .16 } }).addTo(group);
+        const center = turf.centroid(polygon).geometry.coordinates;
+        L.marker([center[1], center[0]], {
+          interactive: false,
+          icon: L.divIcon({
+            className: "",
+            html: `<div class="area-label">Area: ${formatNumber(areaKm2, 3)} km²</div>`,
+            iconSize: [130, 26],
+            iconAnchor: [65, 13]
+          })
+        }).addTo(group);
+      }
+      turfMeasureLayer = group.addTo(layers.turf);
+      updateTurfPointStatus(`Points: ${turfPointCoords.length}`);
+      syncLayerVisibility();
+    }
+
+    function addTurfPoint(latlng) {
+      ensureTurfLayerActive();
+      const index = turfPointCoords.length + 1;
+      turfPointCoords.push([latlng.lng, latlng.lat]);
+      const icon = L.divIcon({ className: "", html: `<div class="measure-marker">${index}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+      const marker = L.marker(latlng, { icon, draggable: true })
+        .bindPopup(`Point ${index}<br>${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`)
+        .addTo(layers.turf);
+      marker.on("dragend", () => {
+        const p = marker.getLatLng();
+        turfPointCoords[index - 1] = [p.lng, p.lat];
+        marker.setPopupContent(`Point ${index}<br>${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`);
+        refreshTurfPointGeometry();
+      });
+      turfPointMarkers.push(marker);
+      refreshTurfPointGeometry();
+      setDetails("Turf.js point", `
+        <div class="row"><span>Point</span><strong>${index}</strong></div>
+        <div class="row"><span>Coordinates</span><strong>${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}</strong></div>
+      `);
+    }
+
+    function toggleTurfPointMode() {
+      turfPointMode = !turfPointMode;
+      ensureTurfLayerActive();
+      setTurfPointButtonState();
+      updateTurfPointStatus(`Points: ${turfPointCoords.length}${turfPointMode ? " | ON" : " | OFF"}`);
+    }
+
+    function calculateTurfPointDistance() {
+      ensureTurfLayerActive();
+      if (turfPointCoords.length < 2) return alert("Add at least two points first.");
+      const line = turf.lineString(turfPointCoords);
+      const km = turf.length(line, { units: "kilometers" });
+      const miles = turf.length(line, { units: "miles" });
+      refreshTurfPointGeometry();
+      updateTurfPointStatus(`Distance: ${formatNumber(km, 3)} km`);
+      setDetails("Turf.js point distance", `
+        <div class="row"><span>Tool</span><strong>turf.length()</strong></div>
+        <div class="row"><span>Points</span><strong>${turfPointCoords.length}</strong></div>
+        <div class="row"><span>Distance</span><strong>${formatNumber(km, 3)} km</strong></div>
+        <div class="row"><span>Distance</span><strong>${formatNumber(miles, 3)} miles</strong></div>
+      `);
+    }
+
+    function calculateTurfPointArea() {
+      ensureTurfLayerActive();
+      if (turfPointCoords.length < 3) return alert("Add at least three points first.");
+      const polygon = turf.polygon([[...turfPointCoords, turfPointCoords[0]]]);
+      const areaM2 = turf.area(polygon);
+      const areaKm2 = areaM2 / 1000000;
+      refreshTurfPointGeometry();
+      updateTurfPointStatus(`Area: ${formatNumber(areaKm2, 3)} km²`);
+      setDetails("Turf.js polygon area", `
+        <div class="row"><span>Tool</span><strong>turf.area()</strong></div>
+        <div class="row"><span>Points</span><strong>${turfPointCoords.length}</strong></div>
+        <div class="row"><span>Area</span><strong>${formatNumber(areaKm2, 3)} km²</strong></div>
+        <div class="row"><span>Area</span><strong>${formatNumber(areaM2, 0)} m²</strong></div>
+      `);
+    }
+
+    function clearTurfPoints() {
+      turfPointMode = false;
+      setTurfPointButtonState();
+      turfPointMarkers.forEach(marker => layers.turf.removeLayer(marker));
+      turfPointMarkers = [];
+      turfPointCoords = [];
+      if (turfMeasureLayer) layers.turf.removeLayer(turfMeasureLayer);
+      turfMeasureLayer = null;
+      updateTurfPointStatus("Points: 0");
+      setDetails("Turf.js points cleared", `<div class="row"><span>Status</span><strong>Points cleared</strong></div>`);
+    }
+
+    function renderEarthInset() {
+      const inset = el("earthInset");
+      const svgNode = el("earthInsetSvg");
+      if (!countryGeoJSON || !d3 || !inset || !svgNode || inset.style.display === "none") return;
+      const width = inset.clientWidth || 310;
+      const height = inset.clientHeight || 230;
+      const radius = Math.min(width, height) * 0.38;
+      earthInsetSvg = d3.select("#earthInsetSvg");
+      earthInsetSvg.attr("viewBox", `0 0 ${width} ${height}`);
+      earthInsetSvg.selectAll("*").remove();
+      earthInsetProjection = d3.geoOrthographic()
+        .scale(radius)
+        .translate([width / 2, height / 2 + 6])
+        .rotate(globeRotation)
+        .clipAngle(90);
+      earthInsetPath = d3.geoPath(earthInsetProjection);
+      earthInsetSvg.append("path")
+        .datum({ type: "Sphere" })
+        .attr("d", earthInsetPath)
+        .attr("fill", THEMATIC_WATER_COLOR)
+        .attr("opacity", .28)
+        .attr("stroke", "rgba(255,255,255,.25)");
+      earthInsetSvg.append("g")
+        .selectAll("path")
+        .data(countryGeoJSON.features)
+        .join("path")
+        .attr("d", earthInsetPath)
+        .attr("fill", d => countryFillColor(countryIso3(d)))
+        .attr("fill-opacity", d => countryIso3(d) === selectedCountryIso3 ? .95 : .75)
+        .attr("stroke", d => countryIso3(d) === selectedCountryIso3 ? "#ffffff" : "rgba(15,23,42,.75)")
+        .attr("stroke-width", d => countryIso3(d) === selectedCountryIso3 ? 1.6 : .45)
+        .style("cursor", "pointer")
+        .on("click", (event, d) => selectCountryByIso3(countryIso3(d), { zoom: true, loadArea: true }));
+      d3.select("#earthInsetSvg").call(d3.drag()
+        .on("start", function(event) {
+          this._start = { x: event.x, y: event.y, rotate: [...globeRotation] };
+        })
+        .on("drag", function(event) {
+          const start = this._start || { x: event.x, y: event.y, rotate: [...globeRotation] };
+          const dx = event.x - start.x;
+          const dy = event.y - start.y;
+          globeRotation = [start.rotate[0] + dx * 0.35, Math.max(-80, Math.min(80, start.rotate[1] - dy * 0.25))];
+          renderEarthInset();
+        })
+      );
+    }
+
+    function initGlobe() {
+      globeSvg = d3.select("#globeSvg");
+      renderGlobe();
+      window.addEventListener("resize", () => {
+        if (el("globePanel").style.display === "block") renderGlobe();
+      renderEarthInset();
+      });
+    }
+
+    function refreshGlobeGeometry() {
+      if (!globeProjection || !globePath || !globeSvg) return;
+      globeProjection.rotate(globeRotation);
+      globeSvg.selectAll("path").attr("d", globePath);
+    }
+
+    function globeLonLatSpan(feature) {
+      try {
+        const b = d3.geoBounds(feature);
+        let lonSpan = Math.abs(b[1][0] - b[0][0]);
+        if (lonSpan > 180) lonSpan = 360 - lonSpan;
+        const latSpan = Math.abs(b[1][1] - b[0][1]);
+        return { lonSpan, latSpan };
+      } catch (err) {
+        return { lonSpan: 360, latSpan: 180 };
+      }
+    }
+
+    function projectedFeatureLooksInverted(feature, path, radius) {
+      try {
+        const span = globeLonLatSpan(feature);
+        const b = path.bounds(feature);
+        const w = Math.abs(b[1][0] - b[0][0]);
+        const h = Math.abs(b[1][1] - b[0][1]);
+        const area = d3.geoArea(feature);
+        const smallOrMediumCountry = span.lonSpan < 70 && span.latSpan < 70;
+        const almostWholeGlobe = w > radius * 1.45 || h > radius * 1.45;
+        const impossibleSphericalArea = area > Math.PI;
+        return impossibleSphericalArea || (smallOrMediumCountry && almostWholeGlobe);
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function preparedGlobeFeatures(path, radius) {
+      return countryGeoJSON.features.map(feature => {
+        let fixed = feature;
+        if (projectedFeatureLooksInverted(fixed, path, radius)) {
+          fixed = reverseFeatureRings(fixed);
+        }
+        if (projectedFeatureLooksInverted(fixed, path, radius)) {
+          fixed = {
+            ...fixed,
+            properties: { ...(fixed.properties || {}), __globeProblem: true }
+          };
+        }
+        return fixed;
+      });
+    }
+
+    function renderGlobe() {
+      if (!countryGeoJSON || !d3 || !el("globeSvg")) return;
+      const panel = el("globePanel");
+      const width = panel.clientWidth || el("mapShell").clientWidth || 800;
+      const height = panel.clientHeight || el("mapShell").clientHeight || 600;
+      const radius = Math.min(width, height) * 0.42 * globeScaleBoost;
+
+      globeSvg = d3.select("#globeSvg");
+      globeSvg.attr("viewBox", `0 0 ${width} ${height}`);
+      globeSvg.selectAll("*").remove();
+
+      globeProjection = d3.geoOrthographic()
+        .scale(radius)
+        .translate([width / 2, height / 2])
+        .rotate(globeRotation)
+        .clipAngle(90);
+      globePath = d3.geoPath(globeProjection);
+      const globeFeatures = preparedGlobeFeatures(globePath, radius);
+
+      const oceanMaskId = "globe-ocean-mask";
+      const sphereDatum = { type: "Sphere" };
+
+      // Base ocean: always blue under every thematic country layer.
+      globeSvg.append("path")
+        .datum(sphereDatum)
+        .attr("class", "globe-sphere globe-ocean-base")
+        .attr("d", globePath)
+        .attr("fill", THEMATIC_WATER_COLOR)
+        .attr("opacity", 1)
+        .attr("stroke", "rgba(255,255,255,.35)")
+        .attr("stroke-width", 1.4)
+        .style("pointer-events", "none");
+
+      // SVG ocean mask: white = water visible, black = land punched out.
+      // This creates a real water-bodies layer above thematic fills without hiding countries.
+      const defs = globeSvg.append("defs");
+      const mask = defs.append("mask")
+        .attr("id", oceanMaskId)
+        .attr("maskUnits", "userSpaceOnUse")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", width)
+        .attr("height", height);
+      mask.append("rect")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("fill", "black");
+      mask.append("path")
+        .datum(sphereDatum)
+        .attr("d", globePath)
+        .attr("fill", "white");
+      mask.append("g")
+        .selectAll("path")
+        .data(globeFeatures.filter(d => !d.properties?.__globeProblem))
+        .join("path")
+        .attr("d", globePath)
+        .attr("fill-rule", "evenodd")
+        .attr("fill", "black")
+        .attr("stroke", "black")
+        .attr("stroke-width", 1.2);
+
+      globeCountryPaths = globeSvg.append("g")
+        .attr("class", "globe-country-layer")
+        .selectAll("path")
+        .data(globeFeatures)
+        .join("path")
+        .attr("class", "globe-country")
+        .attr("d", globePath)
+        .attr("fill-rule", "evenodd")
+        .attr("fill", d => d.properties?.__globeProblem ? "transparent" : countryFillColor(countryIso3(d)))
+        .attr("fill-opacity", d => d.properties?.__globeProblem ? 0 : (countryIso3(d) === selectedCountryIso3 ? .98 : .88))
+        .attr("stroke", d => countryIso3(d) === selectedCountryIso3 ? "#ffffff" : "rgba(15,23,42,.7)")
+        .attr("stroke-width", d => countryIso3(d) === selectedCountryIso3 ? 1.8 : .6)
+        .style("cursor", d => d.properties?.__globeProblem ? "default" : "pointer")
+        .style("pointer-events", d => d.properties?.__globeProblem ? "none" : "all")
+        .on("mouseover", (event, d) => {
+          d3.select(event.currentTarget).attr("stroke", "#fff").attr("stroke-width", 1.8);
+          showHover(event, countryHoverHTML(countryIso3(d), d));
+        })
+        .on("mousemove", event => updateHoverPosition(event))
+        .on("mouseout", (event, d) => {
+          d3.select(event.currentTarget)
+            .attr("stroke", countryIso3(d) === selectedCountryIso3 ? "#ffffff" : "rgba(15,23,42,.7)")
+            .attr("stroke-width", countryIso3(d) === selectedCountryIso3 ? 1.8 : .6);
+          hideHover();
+        })
+        .on("click", (event, d) => {
+          if (globeWasDragged) return;
+          selectCountryByIso3(countryIso3(d), { zoom: false, loadArea: true, rotateGlobe: false });
+        });
+
+      // Top ocean overlay. It is masked so only oceans/seas are painted blue.
+      // This keeps the water color fixed for Classification, Population, Density, GDP, and GDP per Capita.
+      globeSvg.append("path")
+        .datum(sphereDatum)
+        .attr("class", "globe-water-top-layer")
+        .attr("d", globePath)
+        .attr("fill", THEMATIC_WATER_COLOR)
+        .attr("opacity", 1)
+        .attr("mask", `url(#${oceanMaskId})`)
+        .style("pointer-events", "none");
+
+      globeSvg.append("path")
+        .datum(sphereDatum)
+        .attr("class", "globe-outline")
+        .attr("d", globePath)
+        .attr("fill", "none")
+        .attr("stroke", "rgba(255,255,255,.65)")
+        .attr("stroke-width", 1.2)
+        .style("pointer-events", "none");
+
+      setupGlobeDrag();
+    }
+
+    function setupGlobeDrag() {
+      const drag = d3.drag()
+        .on("start", function(event) {
+          globeWasDragged = false;
+          this._start = { x: event.x, y: event.y, rotate: [...globeRotation] };
+          d3.select("#globeSvg").style("cursor", "grabbing");
+        })
+        .on("drag", function(event) {
+          globeWasDragged = true;
+          const start = this._start || { x: event.x, y: event.y, rotate: [...globeRotation] };
+          const dx = event.x - start.x;
+          const dy = event.y - start.y;
+          globeRotation = [start.rotate[0] + dx * 0.55, Math.max(-89, Math.min(89, start.rotate[1] - dy * 0.42))];
+          refreshGlobeGeometry();
+        })
+        .on("end", function() {
+          d3.select("#globeSvg").style("cursor", "grab");
+          setTimeout(() => { globeWasDragged = false; }, 120);
+        });
+      globeSvg.call(drag);
+      globeSvg.on("wheel", (event) => {
+        event.preventDefault();
+        globeScaleBoost = Math.max(.7, Math.min(2.2, globeScaleBoost + (event.deltaY < 0 ? .08 : -.08)));
+        renderGlobe();
+      });
+    }
+
+
+    function toggleToolPopup(panelId, buttonId) {
+      const panel = el(panelId);
+      const button = el(buttonId);
+      if (!panel || !button) return;
+      const willOpen = !panel.classList.contains("open");
+      document.querySelectorAll(".tool-popup").forEach(p => p.classList.remove("open"));
+      document.querySelectorAll(".map-fab").forEach(b => b.classList.remove("active"));
+      if (willOpen) {
+        panel.classList.add("open");
+        button.classList.add("active");
+      }
+    }
+
+    el("baseMapToggleBtn").addEventListener("click", () => toggleToolPopup("baseMapPopup", "baseMapToggleBtn"));
+    el("layerToggleBtn").addEventListener("click", () => toggleToolPopup("layerPopup", "layerToggleBtn"));
+    el("turfToggleBtn").addEventListener("click", () => toggleToolPopup("turfPopup", "turfToggleBtn"));
+    document.querySelectorAll(".close-popup").forEach(btn => btn.addEventListener("click", () => {
+      const panelId = btn.dataset.close;
+      const panel = panelId ? el(panelId) : null;
+      if (panel) panel.classList.remove("open");
+      document.querySelectorAll(".map-fab").forEach(b => b.classList.remove("active"));
+    }));
+
+    document.querySelectorAll("input[data-layer]").forEach(input => input.addEventListener("change", syncLayerVisibility));
+    document.querySelectorAll("input[name='basemap']").forEach(input => input.addEventListener("change", e => setBaseMap(e.target.value)));
+
+    document.querySelectorAll(".collapse-head").forEach(head => {
+      head.addEventListener("click", () => {
+        const section = head.closest(".section");
+        section.classList.toggle("collapsed");
+        const chev = head.querySelector(".chev");
+        if (chev) chev.textContent = section.classList.contains("collapsed") ? "Click to open tools ▸" : "Click to manage ▾";
+      });
+    });
+
+    el("searchBtn").addEventListener("click", searchPlace);
+    el("placeSearch").addEventListener("keydown", e => { if (e.key === "Enter") searchPlace(); });
+    el("locateBtn").addEventListener("click", locateMe);
+    el("themeSelect").addEventListener("change", updateWorldStyles);
+    el("yearSelect").addEventListener("change", async e => {
+      setLoading(`Loading World Bank GDP and population for ${e.target.value}...`, true);
+      await Promise.all([loadGdpData(e.target.value), loadPopulationData(e.target.value)]);
+      updateWorldStyles();
+      if (selectedCountryIso3) updateCountryDashboard(selectedCountryIso3);
+      setLoading("", false);
+    });
+
+    el("bufferBtn").addEventListener("click", turfBuffer);
+    el("centerBtn").addEventListener("click", turfCountryCenter);
+    el("bboxBtn").addEventListener("click", turfBoundingBox);
+    el("distanceBtn").addEventListener("click", turfDistanceFromMe);
+    el("clearTurfBtn").addEventListener("click", clearTurf);
+    el("addPointModeBtn").addEventListener("click", toggleTurfPointMode);
+    el("distancePointsBtn").addEventListener("click", calculateTurfPointDistance);
+    el("areaPointsBtn").addEventListener("click", calculateTurfPointArea);
+    el("clearPointsBtn").addEventListener("click", clearTurfPoints);
+
+    map.on("click", event => {
+      if (turfPointMode) addTurfPoint(event.latlng);
+    });
+
+    async function initialize() {
+      try {
+        setLoading("Loading global country boundaries and live API data...", true);
+        await Promise.all([
+          loadRestCountries(),
+          loadWorldBankCountries(),
+          loadWorldGeoJSON(),
+          loadGdpData(el("yearSelect").value),
+          loadPopulationData(el("yearSelect").value),
+          loadAreaData()
+        ]);
+        buildWorldLayer();
+        initGlobe();
+        updateLegend();
+        syncLayerVisibility();
+        setDetails("Project ready", `
+          <div class="hint">The large map screen contains all visual results, base maps, world country classes, operational layers, distances, and area tools. Click any country to send full information to the right dashboard.</div>
+          <div class="row"><span>Classification layer</span><strong>All countries</strong></div>
+          <div class="row"><span>Data join key</span><strong>ISO_A3 / CCA3</strong></div>
+          <div class="row"><span>Turf drawing</span><strong>Add points + distance/area</strong></div>
+        `);
+      } catch (err) {
+        console.error(err);
+        setDetails("Initialization error", `<div class="hint">The application could not load one of the required global data sources. Check your internet connection and refresh the page.</div>`);
+      } finally {
+        setLoading("", false);
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
